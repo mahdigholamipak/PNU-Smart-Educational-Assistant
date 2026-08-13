@@ -74,26 +74,26 @@ export default function Profile() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">پروفایل کاربری</h1>
-        <p className="mt-1 text-sm text-slate-500">مشاهده و ویرایش اطلاعات شخصی</p>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">پروفایل کاربری</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">مشاهده و ویرایش اطلاعات شخصی</p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Profile info */}
         <div className="card">
-          <h2 className="mb-4 text-lg font-semibold text-slate-700">اطلاعات شخصی</h2>
+          <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">اطلاعات شخصی</h2>
 
           {profileMsg && (
-            <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-700">{profileMsg}</div>
+            <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/40 dark:text-green-300">{profileMsg}</div>
           )}
           {profileErr && (
-            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{profileErr}</div>
+            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{profileErr}</div>
           )}
 
           <form onSubmit={saveProfile} className="space-y-4">
             <div>
               <label className="label-field">ایمیل</label>
-              <input type="email" className="input-field bg-slate-50" value={user?.email} disabled />
+              <input type="email" className="input-field bg-slate-50 dark:bg-slate-700/50" value={user?.email} disabled />
             </div>
 
             <div>
@@ -142,13 +142,13 @@ export default function Profile() {
 
         {/* Password change */}
         <div className="card">
-          <h2 className="mb-4 text-lg font-semibold text-slate-700">تغییر رمز عبور</h2>
+          <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">تغییر رمز عبور</h2>
 
           {passwordMsg && (
-            <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-700">{passwordMsg}</div>
+            <div className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/40 dark:text-green-300">{passwordMsg}</div>
           )}
           {passwordErr && (
-            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{passwordErr}</div>
+            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{passwordErr}</div>
           )}
 
           <form onSubmit={changePassword} className="space-y-4">

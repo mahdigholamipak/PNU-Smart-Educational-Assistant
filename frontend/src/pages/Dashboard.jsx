@@ -34,20 +34,20 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">سلام، {user?.full_name} 👋</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">سلام، {user?.full_name} 👋</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           یک درس را انتخاب کنید تا گفتگو با دستیار هوشمند را آغاز کنید.
         </p>
       </div>
 
       {error && (
-        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>
       )}
 
       {!loading && courses.length === 0 && (
         <div className="card text-center">
-          <p className="text-slate-500">
-            هنوز درسی در سیستم ثبت نشده است. می‌توانید از بخش «درخواست درس» درس مورد نظر خود را درخواست دهید.
+          <p className="text-slate-500 dark:text-slate-400">
+            هنوز درسی در سیستم ثبت نشده است. می‌توانید از بخش «درخواست‌های درس» درس مورد نظر خود را درخواست دهید.
           </p>
         </div>
       )}
@@ -57,22 +57,22 @@ export default function Dashboard() {
           <button
             key={course.id}
             onClick={() => handleSelectCourse(course.id)}
-            className="card group text-right transition hover:border-blue-300 hover:shadow-md"
+            className="card group text-right transition hover:border-blue-300 hover:shadow-md dark:hover:border-blue-500"
           >
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-slate-800 group-hover:text-blue-700">
+                <h2 className="text-lg font-semibold text-slate-800 group-hover:text-blue-700 dark:text-slate-100 dark:group-hover:text-blue-400">
                   {course.title}
                 </h2>
-                <p className="mt-1 text-xs font-medium text-blue-600">{course.code}</p>
+                <p className="mt-1 text-xs font-medium text-blue-600 dark:text-blue-400">{course.code}</p>
               </div>
               <span className="text-2xl">📘</span>
             </div>
             {course.description && (
-              <p className="mt-3 line-clamp-2 text-sm text-slate-500">{course.description}</p>
+              <p className="mt-3 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{course.description}</p>
             )}
             <div className="mt-4">
-              <span className="inline-flex items-center gap-1 text-sm font-medium text-blue-600">
+              <span className="inline-flex items-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400">
                 شروع گفتگو ←
               </span>
             </div>

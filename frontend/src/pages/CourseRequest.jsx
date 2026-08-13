@@ -54,31 +54,31 @@ export default function CourseRequest() {
   };
 
   const statusColors = {
-    pending: "bg-yellow-100 text-yellow-800",
-    approved: "bg-green-100 text-green-800",
-    rejected: "bg-red-100 text-red-800",
+    pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+    approved: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+    rejected: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
   };
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">درخواست درس جدید</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">درخواست درس جدید</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           اگر درس مورد نظر شما در سیستم موجود نیست، آن را درخواست دهید.
         </p>
       </div>
 
       {message && (
-        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</div>
+        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/40 dark:text-green-300">{message}</div>
       )}
       {error && (
-        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Form */}
         <div className="card">
-          <h2 className="mb-4 text-lg font-semibold text-slate-700">فرم درخواست</h2>
+          <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">فرم درخواست</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -129,20 +129,20 @@ export default function CourseRequest() {
 
         {/* My requests */}
         <div className="card">
-          <h2 className="mb-4 text-lg font-semibold text-slate-700">درخواست‌های من</h2>
+          <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">درخواست‌های من</h2>
 
           {loading ? (
             <div className="flex justify-center py-8">
               <Spinner />
             </div>
           ) : requests.length === 0 ? (
-            <p className="text-sm text-slate-500">هنوز درخواستی ثبت نکرده‌اید.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">هنوز درخواستی ثبت نکرده‌اید.</p>
           ) : (
             <ul className="space-y-3">
               {requests.map((req) => (
-                <li key={req.id} className="rounded-lg border border-slate-200 p-3">
+                <li key={req.id} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                   <div className="flex items-center justify-between">
-                    <p className="font-medium text-slate-800">{req.course_name}</p>
+                    <p className="font-medium text-slate-800 dark:text-slate-100">{req.course_name}</p>
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[req.status]}`}
                     >
@@ -150,17 +150,17 @@ export default function CourseRequest() {
                     </span>
                   </div>
                   {req.course_code && (
-                    <p className="mt-1 text-xs text-slate-500">کد درس: {req.course_code}</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">کد درس: {req.course_code}</p>
                   )}
                   {req.description && (
-                    <p className="mt-1 text-sm text-slate-600">{req.description}</p>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{req.description}</p>
                   )}
                   {req.admin_note && (
-                    <p className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-500">
+                    <p className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-300">
                       پاسخ مدیر: {req.admin_note}
                     </p>
                   )}
-                  <p className="mt-2 text-xs text-slate-400">
+                  <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
                     {new Date(req.created_at).toLocaleDateString("fa-IR")}
                   </p>
                 </li>

@@ -9,9 +9,9 @@ const statusLabels = {
 };
 
 const statusColors = {
-  pending: "bg-yellow-100 text-yellow-800",
-  approved: "bg-green-100 text-green-800",
-  rejected: "bg-red-100 text-red-800",
+  pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+  approved: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+  rejected: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
 };
 
 export default function AdminRequests() {
@@ -48,15 +48,15 @@ export default function AdminRequests() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">درخواست‌های درس</h1>
-        <p className="mt-1 text-sm text-slate-500">بررسی و مدیریت درخواست‌های دانشجویان</p>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">درخواست‌های درس</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">بررسی و مدیریت درخواست‌های دانشجویان</p>
       </div>
 
       {message && (
-        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</div>
+        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/40 dark:text-green-300">{message}</div>
       )}
       {error && (
-        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>
       )}
 
       <div className="card">
@@ -65,15 +65,15 @@ export default function AdminRequests() {
             <Spinner />
           </div>
         ) : requests.length === 0 ? (
-          <p className="text-sm text-slate-500">درخواستی ثبت نشده است.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">درخواستی ثبت نشده است.</p>
         ) : (
           <div className="space-y-4">
             {requests.map((req) => (
-              <div key={req.id} className="rounded-lg border border-slate-200 p-4">
+              <div key={req.id} className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-slate-800">{req.course_name}</h3>
+                      <h3 className="font-semibold text-slate-800 dark:text-slate-100">{req.course_name}</h3>
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[req.status]}`}
                       >
@@ -81,12 +81,12 @@ export default function AdminRequests() {
                       </span>
                     </div>
                     {req.course_code && (
-                      <p className="mt-1 text-xs text-slate-500">کد درس: {req.course_code}</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">کد درس: {req.course_code}</p>
                     )}
                     {req.description && (
-                      <p className="mt-2 text-sm text-slate-600">{req.description}</p>
+                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{req.description}</p>
                     )}
-                    <p className="mt-2 text-xs text-slate-400">
+                    <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
                       {new Date(req.created_at).toLocaleDateString("fa-IR")}
                     </p>
                   </div>
@@ -111,7 +111,7 @@ export default function AdminRequests() {
                     <button
                       onClick={() => updateStatus(req.id, "rejected")}
                       disabled={req.status === "rejected"}
-                      className="btn-secondary !px-3 !py-1.5 text-xs text-red-600"
+                      className="btn-secondary !px-3 !py-1.5 text-xs text-red-600 dark:text-red-400"
                     >
                       رد
                     </button>
@@ -119,7 +119,7 @@ export default function AdminRequests() {
                 </div>
 
                 {req.admin_note && (
-                  <p className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-500">
+                  <p className="mt-2 rounded bg-slate-50 p-2 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-300">
                     یادداشت مدیر: {req.admin_note}
                   </p>
                 )}

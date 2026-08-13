@@ -46,15 +46,15 @@ export default function AdminUsers() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">مدیریت کاربران</h1>
-        <p className="mt-1 text-sm text-slate-500">مشاهده و مدیریت کاربران ثبت‌شده در سیستم</p>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">مدیریت کاربران</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">مشاهده و مدیریت کاربران ثبت‌شده در سیستم</p>
       </div>
 
       {message && (
-        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</div>
+        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/40 dark:text-green-300">{message}</div>
       )}
       {error && (
-        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>
       )}
 
       <div className="card">
@@ -63,12 +63,12 @@ export default function AdminUsers() {
             <Spinner />
           </div>
         ) : users.length === 0 ? (
-          <p className="text-sm text-slate-500">کاربری ثبت نشده است.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">کاربری ثبت نشده است.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
               <thead>
-                <tr className="text-right text-xs text-slate-500">
+                <tr className="text-right text-xs text-slate-500 dark:text-slate-400">
                   <th className="px-3 py-2 font-medium">نام</th>
                   <th className="px-3 py-2 font-medium">ایمیل</th>
                   <th className="px-3 py-2 font-medium">شماره دانشجویی</th>
@@ -77,12 +77,12 @@ export default function AdminUsers() {
                   <th className="px-3 py-2 font-medium">عملیات</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                 {users.map((user) => (
                   <tr key={user.id}>
-                    <td className="px-3 py-2 font-medium text-slate-800">{user.full_name}</td>
-                    <td className="px-3 py-2 text-slate-600">{user.email}</td>
-                    <td className="px-3 py-2 text-slate-600">{user.student_id || "-"}</td>
+                    <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">{user.full_name}</td>
+                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{user.email}</td>
+                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{user.student_id || "-"}</td>
                     <td className="px-3 py-2">
                       <select
                         className="input-field !w-auto !py-1 text-xs"
@@ -97,8 +97,8 @@ export default function AdminUsers() {
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                           user.is_active
-                            ? "bg-green-100 text-green-800"
-                            : "bg-red-100 text-red-800"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                            : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300"
                         }`}
                       >
                         {user.is_active ? "فعال" : "غیرفعال"}
@@ -108,7 +108,7 @@ export default function AdminUsers() {
                       <button
                         onClick={() => toggleActive(user)}
                         className={`text-xs hover:underline ${
-                          user.is_active ? "text-red-600" : "text-green-600"
+                          user.is_active ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
                         }`}
                       >
                         {user.is_active ? "غیرفعال‌کردن" : "فعال‌کردن"}

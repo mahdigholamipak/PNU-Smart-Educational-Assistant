@@ -9,9 +9,9 @@ const statusLabels = {
 };
 
 const statusColors = {
-  processing: "bg-yellow-100 text-yellow-800",
-  ready: "bg-green-100 text-green-800",
-  failed: "bg-red-100 text-red-800",
+  processing: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300",
+  ready: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
+  failed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
 };
 
 export default function AdminResources() {
@@ -136,20 +136,20 @@ export default function AdminResources() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">مدیریت منابع درسی</h1>
-        <p className="mt-1 text-sm text-slate-500">بارگذاری، مدیریت و حذف منابع PDF دروس</p>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">مدیریت منابع درسی</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">بارگذاری، مدیریت و حذف منابع PDF دروس</p>
       </div>
 
       {message && (
-        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</div>
+        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/40 dark:text-green-300">{message}</div>
       )}
       {error && (
-        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>
       )}
 
       {/* Upload form */}
       <div className="card">
-        <h2 className="mb-4 text-lg font-semibold text-slate-700">بارگذاری منبع جدید</h2>
+        <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">بارگذاری منبع جدید</h2>
         <form onSubmit={handleUpload} className="flex flex-col gap-4 sm:flex-row sm:items-end">
           <div className="flex-1">
             <label className="label-field">انتخاب درس</label>
@@ -183,7 +183,7 @@ export default function AdminResources() {
 
       {/* Courses */}
       <div className="card">
-        <h2 className="mb-4 text-lg font-semibold text-slate-700">درسه</h2>
+        <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">درس‌ها</h2>
 
         <form onSubmit={handleAddCourse} className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="w-full sm:w-40">
@@ -215,15 +215,17 @@ export default function AdminResources() {
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {courses.map((course) => (
-            <div key={course.id} className="rounded-lg border border-slate-200 p-3">
+            <div key={course.id} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-slate-800">{course.title}</p>
-                  <p className="text-xs text-slate-500">{course.code}</p>
+                  <p className="font-medium text-slate-800 dark:text-slate-100">{course.title}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{course.code}</p>
                 </div>
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                    course.is_active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"
+                    course.is_active
+                      ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                      : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                   }`}
                 >
                   {course.is_active ? "فعال" : "غیرفعال"}
@@ -233,33 +235,33 @@ export default function AdminResources() {
                 <button onClick={() => handleToggleCourse(course)} className="btn-secondary flex-1 !px-2 !py-1 text-xs">
                   {course.is_active ? "غیرفعال‌کردن" : "فعال‌کردن"}
                 </button>
-                <button onClick={() => handleDeleteCourse(course.id)} className="btn-secondary flex-1 !px-2 !py-1 text-xs text-red-600">
+                <button onClick={() => handleDeleteCourse(course.id)} className="btn-secondary flex-1 !px-2 !py-1 text-xs text-red-600 dark:text-red-400">
                   حذف
                 </button>
               </div>
             </div>
           ))}
           {courses.length === 0 && (
-            <p className="text-sm text-slate-500">هنوز درسی ثبت نشده است.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">هنوز درسی ثبت نشده است.</p>
           )}
         </div>
       </div>
 
       {/* Resources table */}
       <div className="card">
-        <h2 className="mb-4 text-lg font-semibold text-slate-700">منابع بارگذاری‌شده</h2>
+        <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">منابع بارگذاری‌شده</h2>
 
         {loading ? (
           <div className="flex justify-center py-8">
             <Spinner />
           </div>
         ) : resources.length === 0 ? (
-          <p className="text-sm text-slate-500">هنوز منبعی بارگذاری نشده است.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">هنوز منبعی بارگذاری نشده است.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
               <thead>
-                <tr className="text-right text-xs text-slate-500">
+                <tr className="text-right text-xs text-slate-500 dark:text-slate-400">
                   <th className="px-3 py-2 font-medium">نام فایل</th>
                   <th className="px-3 py-2 font-medium">درس</th>
                   <th className="px-3 py-2 font-medium">وضعیت</th>
@@ -268,26 +270,26 @@ export default function AdminResources() {
                   <th className="px-3 py-2 font-medium">عملیات</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                 {resources.map((res) => (
                   <tr key={res.id}>
-                    <td className="px-3 py-2 text-slate-800">{res.filename}</td>
-                    <td className="px-3 py-2 text-slate-600">{res.course_title || "-"}</td>
+                    <td className="px-3 py-2 text-slate-800 dark:text-slate-100">{res.filename}</td>
+                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{res.course_title || "-"}</td>
                     <td className="px-3 py-2">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[res.status]}`}>
                         {statusLabels[res.status]}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-slate-600">{res.chunk_count}</td>
-                    <td className="px-3 py-2 text-slate-600">
+                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{res.chunk_count}</td>
+                    <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
                       {new Date(res.uploaded_at).toLocaleDateString("fa-IR")}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex gap-2">
-                        <button onClick={() => handleReprocess(res.id)} className="text-xs text-blue-600 hover:underline">
+                        <button onClick={() => handleReprocess(res.id)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
                           پردازش مجدد
                         </button>
-                        <button onClick={() => handleDeleteResource(res.id)} className="text-xs text-red-600 hover:underline">
+                        <button onClick={() => handleDeleteResource(res.id)} className="text-xs text-red-600 hover:underline dark:text-red-400">
                           حذف
                         </button>
                       </div>

@@ -7,7 +7,7 @@ export default function Spinner({ size = "md" }) {
 
   return (
     <div
-      className={`${sizes[size]} inline-block animate-spin rounded-full border-blue-600 border-t-transparent`}
+      className={`${sizes[size]} inline-block animate-spin rounded-full border-blue-600 border-t-transparent dark:border-blue-400 dark:border-t-transparent`}
       role="status"
       aria-label="در حال بارگذاری"
     />

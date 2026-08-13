@@ -32,10 +32,10 @@ export default function AdminDashboard() {
   }, []);
 
   const cards = [
-    { label: "درس‌ها", value: stats.courses, icon: "📘", to: "/admin/resources", color: "bg-blue-50 text-blue-700" },
-    { label: "کاربران", value: stats.users, icon: "👥", to: "/admin/users", color: "bg-green-50 text-green-700" },
-    { label: "منابع درسی", value: stats.resources, icon: "📄", to: "/admin/resources", color: "bg-purple-50 text-purple-700" },
-    { label: "درخواست‌های در انتظار", value: stats.pendingRequests, icon: "📨", to: "/admin/requests", color: "bg-yellow-50 text-yellow-700" },
+    { label: "درس‌ها", value: stats.courses, icon: "📘", to: "/admin/resources", color: "bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
+    { label: "کاربران", value: stats.users, icon: "👥", to: "/admin/users", color: "bg-green-50 text-green-700 dark:bg-green-900/40 dark:text-green-300" },
+    { label: "منابع درسی", value: stats.resources, icon: "📄", to: "/admin/resources", color: "bg-purple-50 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" },
+    { label: "درخواست‌های در انتظار", value: stats.pendingRequests, icon: "📨", to: "/admin/requests", color: "bg-yellow-50 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" },
   ];
 
   if (loading) {
@@ -49,8 +49,8 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">داشبورد مدیریت</h1>
-        <p className="mt-1 text-sm text-slate-500">نمای کلی وضعیت سیستم</p>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">داشبورد مدیریت</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">نمای کلی وضعیت سیستم</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -59,8 +59,8 @@ export default function AdminDashboard() {
             <div className={`inline-flex h-12 w-12 items-center justify-center rounded-xl text-2xl ${card.color}`}>
               {card.icon}
             </div>
-            <p className="mt-3 text-2xl font-bold text-slate-800">{card.value}</p>
-            <p className="text-sm text-slate-500">{card.label}</p>
+            <p className="mt-3 text-2xl font-bold text-slate-800 dark:text-slate-100">{card.value}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{card.label}</p>
           </Link>
         ))}
       </div>

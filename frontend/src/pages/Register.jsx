@@ -36,23 +36,23 @@ export default function Register() {
       const user = await register(payload);
       navigate(user.role === "admin" ? "/admin" : "/dashboard");
     } catch (err) {
-      setError(err.response?.data?.detail || "خطا در ثبتنام");
+      setError(err.response?.data?.detail || "خطا در ثبت‌نام");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4 dark:from-slate-900 dark:to-slate-800">
       <div className="w-full max-w-lg">
         <div className="card">
           <div className="mb-6 text-center">
-            <h1 className="text-2xl font-bold text-blue-700">ثبتنام</h1>
-            <p className="mt-1 text-sm text-slate-500">ایجاد حساب کاربری دانشجویی</p>
+            <h1 className="text-2xl font-bold text-blue-700 dark:text-blue-400">ثبت‌نام</h1>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">ایجاد حساب کاربری دانشجویی</p>
           </div>
 
           {error && (
-            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -143,13 +143,13 @@ export default function Register() {
             </div>
 
             <button type="submit" disabled={loading} className="btn-primary w-full">
-              {loading ? <Spinner size="sm" /> : "ثبتنام"}
+              {loading ? <Spinner size="sm" /> : "ثبت‌نام"}
             </button>
           </form>
 
-          <p className="mt-4 text-center text-sm text-slate-500">
-            قبلاً ثبتنام کردهاید؟{" "}
-            <Link to="/login" className="font-medium text-blue-600 hover:underline">
+          <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
+            قبلاً ثبت‌نام کرده‌اید؟{" "}
+            <Link to="/login" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
               وارد شوید
             </Link>
           </p>

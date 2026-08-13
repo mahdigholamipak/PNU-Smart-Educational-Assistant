@@ -57,19 +57,19 @@ export default function AdminSettings() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">تنظیمات API</h1>
-        <p className="mt-1 text-sm text-slate-500">مدیریت کلیدهای API مدل هوش مصنوعی</p>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">تنظیمات API</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">مدیریت کلیدهای API مدل هوش مصنوعی</p>
       </div>
 
       {message && (
-        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</div>
+        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/40 dark:text-green-300">{message}</div>
       )}
       {error && (
-        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>
       )}
 
       <div className="card">
-        <h2 className="mb-4 text-lg font-semibold text-slate-700">Google Gemini</h2>
+        <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">Google Gemini</h2>
 
         <form onSubmit={handleGeminiSave} className="space-y-4">
           <div>
@@ -83,7 +83,7 @@ export default function AdminSettings() {
               defaultValue={getValue("gemini_api_key")}
               autoComplete="off"
             />
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               این کلید برای تولید پاسخ و ساخت بردارهای جستجو استفاده می‌شود.
             </p>
           </div>
@@ -95,7 +95,7 @@ export default function AdminSettings() {
       </div>
 
       <div className="card">
-        <h2 className="mb-4 text-lg font-semibold text-slate-700">سایر تنظیمات</h2>
+        <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">سایر تنظیمات</h2>
         <div className="space-y-4">
           <div>
             <label className="label-field" htmlFor="gemini_chat_model">مدل گفتگو</label>

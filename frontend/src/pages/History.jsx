@@ -50,40 +50,42 @@ export default function History() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">تاریخچه گفتگوها</h1>
-        <p className="mt-1 text-sm text-slate-500">گفتگوهای قبلی خود را مرور کنید.</p>
+        <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">تاریخچه گفتگوها</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">گفتگوهای قبلی خود را مرور کنید.</p>
       </div>
 
       {error && (
-        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         {/* Sessions list */}
         <div className="lg:col-span-2">
           <div className="card">
-            <h2 className="mb-4 text-lg font-semibold text-slate-700">لیست گفتگوها</h2>
+            <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">لیست گفتگوها</h2>
 
             {loading ? (
               <div className="flex justify-center py-8">
                 <Spinner />
               </div>
             ) : sessions.length === 0 ? (
-              <p className="text-sm text-slate-500">هنوز گفتگویی ندارید.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">هنوز گفتگویی ندارید.</p>
             ) : (
               <ul className="space-y-2">
                 {sessions.map((s) => (
                   <li key={s.id}>
                     <div
-                      className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition hover:border-blue-300 ${
-                        detail?.id === s.id ? "border-blue-400 bg-blue-50" : "border-slate-200"
+                      className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition hover:border-blue-300 dark:hover:border-blue-500 ${
+                        detail?.id === s.id
+                          ? "border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/40"
+                          : "border-slate-200 dark:border-slate-700"
                       }`}
                       onClick={() => openSession(s.id)}
                     >
                       <span>💬</span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-slate-800">{s.title}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{s.title}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
                           {s.course_title} • {new Date(s.created_at).toLocaleDateString("fa-IR")}
                         </p>
                       </div>
@@ -92,7 +94,7 @@ export default function History() {
                           e.stopPropagation();
                           deleteSession(s.id);
                         }}
-                        className="text-sm text-red-500 hover:text-red-700"
+                        className="text-sm text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                         title="حذف"
                       >
                         🗑️
@@ -108,7 +110,7 @@ export default function History() {
         {/* Detail */}
         <div className="lg:col-span-3">
           <div className="card">
-            <h2 className="mb-4 text-lg font-semibold text-slate-700">مشاهده گفتگو</h2>
+            <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">مشاهده گفتگو</h2>
 
             {detailLoading ? (
               <div className="flex justify-center py-8">
@@ -117,16 +119,16 @@ export default function History() {
             ) : !detail ? (
               <div className="py-12 text-center">
                 <span className="text-4xl">📜</span>
-                <p className="mt-3 text-sm text-slate-500">
+                <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
                   برای مشاهده پیام‌ها، یک گفتگو را از لیست انتخاب کنید.
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-700">
                   <div>
-                    <h3 className="font-semibold text-slate-800">{detail.title}</h3>
-                    <p className="text-xs text-slate-500">
+                    <h3 className="font-semibold text-slate-800 dark:text-slate-100">{detail.title}</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       {detail.course_title} • {new Date(detail.created_at).toLocaleDateString("fa-IR")}
                     </p>
                   </div>
@@ -148,16 +150,16 @@ export default function History() {
                         className={`max-w-[80%] rounded-2xl px-4 py-3 ${
                           msg.role === "user"
                             ? "bg-blue-600 text-white"
-                            : "border border-slate-200 bg-slate-50 text-slate-800"
+                            : "border border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                         }`}
                       >
                         <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
                         {msg.sources && msg.sources.length > 0 && (
-                          <div className="mt-2 border-t border-slate-200 pt-2">
-                            <p className="text-xs font-semibold text-slate-500">منابع:</p>
+                          <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-600">
+                            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">منابع:</p>
                             <ul className="mt-1 space-y-1">
                               {msg.sources.map((src, i) => (
-                                <li key={i} className="flex items-center gap-1 text-xs text-slate-500">
+                                <li key={i} className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                                   <span>📄</span>
                                   <span className="truncate">{src.filename}</span>
                                 </li>

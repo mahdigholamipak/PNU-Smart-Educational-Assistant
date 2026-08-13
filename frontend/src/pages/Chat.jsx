@@ -88,7 +88,7 @@ export default function Chat() {
   if (!initialCourseId && !initialSessionId) {
     return (
       <div className="flex h-64 flex-col items-center justify-center space-y-4">
-        <p className="text-slate-500">برای شروع گفتگو، ابتدا یک درس را انتخاب کنید.</p>
+        <p className="text-slate-500 dark:text-slate-400">برای شروع گفتگو، ابتدا یک درس را انتخاب کنید.</p>
         <button onClick={() => navigate("/dashboard")} className="btn-primary">
           انتخاب درس
         </button>
@@ -99,12 +99,12 @@ export default function Chat() {
   return (
     <div className="flex h-[calc(100vh-3rem)] flex-col">
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">
+          <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
             {session ? `گفتگو: ${session.course_title}` : "گفتگو با دستیار هوشمند"}
           </h1>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             پاسخ‌ها فقط بر اساس منابع درسی بارگذاری‌شده تولید می‌شوند.
           </p>
         </div>
@@ -113,7 +113,7 @@ export default function Chat() {
           onChange={(e) => {
             if (e.target.value) createNewSession(e.target.value);
           }}
-          className="input-field w-56"
+          className="input-field w-full sm:w-56"
         >
           <option value="" disabled>
             تغییر درس
@@ -127,12 +127,12 @@ export default function Chat() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 space-y-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex-1 space-y-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
         {messages.length === 0 && !loading && (
           <div className="mt-20 text-center">
             <span className="text-5xl">🤖</span>
-            <h2 className="mt-4 text-lg font-semibold text-slate-700">چه سؤالی از منابع درسی دارید؟</h2>
-            <p className="mt-2 text-sm text-slate-500">
+            <h2 className="mt-4 text-lg font-semibold text-slate-700 dark:text-slate-200">چه سؤالی از منابع درسی دارید؟</h2>
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
               می‌توانید درباره مفاهیم، تمرین‌ها و نمونه سؤالات درس بپرسید.
             </p>
           </div>
@@ -147,17 +147,17 @@ export default function Chat() {
               className={`max-w-[80%] rounded-2xl px-4 py-3 ${
                 msg.role === "user"
                   ? "bg-blue-600 text-white"
-                  : "border border-slate-200 bg-slate-50 text-slate-800"
+                  : "border border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
               }`}
             >
               <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
 
               {msg.sources && msg.sources.length > 0 && (
-                <div className="mt-3 border-t border-slate-200 pt-2">
-                  <p className="text-xs font-semibold text-slate-500">منابع:</p>
+                <div className="mt-3 border-t border-slate-200 pt-2 dark:border-slate-600">
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">منابع:</p>
                   <ul className="mt-1 space-y-1">
                     {msg.sources.map((src, i) => (
-                      <li key={i} className="flex items-center gap-1 text-xs text-slate-500">
+                      <li key={i} className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                         <span>📄</span>
                         <span className="truncate">{src.filename}</span>
                       </li>
@@ -171,7 +171,7 @@ export default function Chat() {
 
         {loading && (
           <div className="flex justify-end">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-600 dark:bg-slate-700">
               <Spinner size="sm" />
             </div>
           </div>
@@ -180,7 +180,7 @@ export default function Chat() {
       </div>
 
       {error && (
-        <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>
       )}
 
       {/* Input */}
