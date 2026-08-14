@@ -1,10 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from app.api import admin, auth, chat, courses, requests, users
 from app.config import settings
 from app.database import Base, engine
 from app.models import *  # noqa: F401,F403 - ensures all models are registered
+
+
+def _run_lightweight_migrations() -> None:
+    """Add new columns to existing SQLite tables (create_all only adds new tables)."""
+    inspector = inspect(engine)
+    if "resources" in inspector.get_table_names():
+        columns = {col["name"] for col in inspector.get_columns("resources")}
+        if "error_message" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE resources ADD COLUMN error_message TEXT"))
 
 app = FastAPI(
     title="PNU Smart Educational Assistant API",
@@ -22,6 +33,9 @@ app.add_middleware(
 
 # Create database tables on startup
 Base.metadata.create_all(bind=engine)
+
+# Apply lightweight migrations for new columns on existing tables
+_run_lightweight_migrations()
 
 # Register routers
 app.include_router(auth.router, prefix="/api")

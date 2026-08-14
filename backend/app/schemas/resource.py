@@ -10,6 +10,7 @@ class ResourceResponse(BaseModel):
     filename: str
     status: str
     chunk_count: int
+    error_message: str | None = None
     uploaded_at: datetime | None = None
 
     model_config = {"from_attributes": True}

@@ -14,6 +14,7 @@ import AdminResources from "./pages/admin/AdminResources";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminSettings from "./pages/admin/AdminSettings";
 import AdminRequests from "./pages/admin/AdminRequests";
+import AdminLogs from "./pages/admin/AdminLogs";
 
 function AppRoutes() {
   const { user } = useAuth();
@@ -49,6 +50,7 @@ function AppRoutes() {
         <Route path="/admin/users" element={<AdminUsers />} />
         <Route path="/admin/settings" element={<AdminSettings />} />
         <Route path="/admin/requests" element={<AdminRequests />} />
+        <Route path="/admin/logs" element={<AdminLogs />} />
       </Route>
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

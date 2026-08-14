@@ -12,7 +12,11 @@ from app.schemas.chat import (
     ChatSessionResponse,
     SendMessageRequest,
 )
-from app.services.rag_service import generate_rag_answer
+from app.services.log_service import log_event
+from app.services.rag_service import (
+    KIND_AI_CONNECTION,
+    generate_rag_answer,
+)
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -125,11 +129,28 @@ def send_message(
     db.commit()
 
     # Generate RAG answer scoped to the session's course
-    answer, sources = generate_rag_answer(
+    answer, sources, error_kind = generate_rag_answer(
         question=payload.content,
         course_id=session.course_id,
         db=db,
     )
+
+    # If AI connection failed, log it and surface a transparent error
+    if error_kind == KIND_AI_CONNECTION:
+        log_event(
+            db,
+            level="error",
+            source="chat",
+            message="ارتباط با مدل هوش مصنوعی شکست خورد",
+            details=f"course_id={session.course_id} — question='{payload.content[:200]}'",
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "ارتباط با مدل هوش مصنوعی برقرار نشد "
+                "(محدودیت API یا خطای شبکه). لطفاً بعداً دوباره تلاش کنید."
+            ),
+        )
 
     assistant_message = ChatMessage(
         session_id=session.id,

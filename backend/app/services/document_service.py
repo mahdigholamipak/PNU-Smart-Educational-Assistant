@@ -1,17 +1,45 @@
 from pathlib import Path
 
+import pdfplumber
 from pypdf import PdfReader
 
 
 def extract_text_from_pdf(file_path: str | Path) -> str:
-    """Extract raw text from a PDF file."""
-    reader = PdfReader(str(file_path))
-    pages = []
-    for page in reader.pages:
-        text = page.extract_text() or ""
-        if text.strip():
-            pages.append(text)
-    return "\n\n".join(pages)
+    """Extract raw text from a PDF file.
+
+    Uses pdfplumber first (better for Persian/RTL PDFs), then falls back to
+    pypdf. Returns whichever extractor produced the longer, non-empty text.
+    """
+    file_path_str = str(file_path)
+
+    # 1. Try pdfplumber (best for Persian/Arabic RTL)
+    try:
+        with pdfplumber.open(file_path_str) as pdf:
+            pages = []
+            for page in pdf.pages:
+                text = page.extract_text() or ""
+                if text.strip():
+                    pages.append(text)
+            pdfplumber_text = "\n\n".join(pages)
+    except Exception:
+        pdfplumber_text = ""
+
+    # 2. Fallback: pypdf
+    try:
+        reader = PdfReader(file_path_str)
+        pages = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text.strip():
+                pages.append(text)
+        pypdf_text = "\n\n".join(pages)
+    except Exception:
+        pypdf_text = ""
+
+    # Pick the longer, more complete extraction
+    if len(pdfplumber_text.strip()) >= len(pypdf_text.strip()):
+        return pdfplumber_text
+    return pypdf_text
 
 
 def chunk_text(text: str, chunk_size: int = 800, overlap: int = 120) -> list[str]:

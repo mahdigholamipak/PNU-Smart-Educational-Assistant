@@ -14,6 +14,7 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [connectionError, setConnectionError] = useState(false);
   const [courses, setCourses] = useState([]);
 
   const messagesEndRef = useRef(null);
@@ -74,8 +75,15 @@ export default function Chat() {
         content: userMsg.content,
       });
       setMessages((prev) => [...prev, res.data]);
+      setConnectionError(false); // reset on success
     } catch (err) {
-      setError(err.response?.data?.detail || "خطا در دریافت پاسخ");
+      const status = err.response?.status;
+      if (status === 502) {
+        setConnectionError(true);
+        setError(err.response?.data?.detail || "ارتباط با مدل هوش مصنوعی برقرار نشد.");
+      } else {
+        setError(err.response?.data?.detail || "خطا در دریافت پاسخ");
+      }
     } finally {
       setLoading(false);
     }
@@ -178,6 +186,12 @@ export default function Chat() {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {connectionError && (
+        <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+          ⚠️ اتصال به مدل هوش مصنوعی برقرار نشد. لطفاً اتصال اینترنت، سهمیه API یا کلید را بررسی کنید و دوباره تلاش کنید.
+        </div>
+      )}
 
       {error && (
         <div className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/40 dark:text-red-300">{error}</div>

@@ -4,6 +4,7 @@ from app.models.resource import Resource
 from app.models.chat import ChatSession, ChatMessage
 from app.models.course_request import CourseRequest
 from app.models.setting import Setting
+from app.models.system_log import SystemLog
 
 __all__ = [
     "User",
@@ -13,4 +14,5 @@ __all__ = [
     "ChatMessage",
     "CourseRequest",
     "Setting",
+    "SystemLog",
 ]

@@ -3,7 +3,12 @@ from typing import Any
 import chromadb
 
 from app.config import settings
-from app.services.llm_service import get_embedding_function
+from app.services.llm_service import (
+    _embed_batch_with_retry,
+    get_embedding_function,
+    resolve_api_keys,
+    resolve_embedding_model,
+)
 
 
 def _get_chroma_client() -> chromadb.ClientAPI:
@@ -23,27 +28,107 @@ def get_or_create_collection(course_id: int) -> Any:
     )
 
 
+def _embed_texts_with_retry(texts: list[str]) -> list[list[float]]:
+    """Embed texts using the shared multi-key/backoff pipeline."""
+    return _embed_batch_with_retry(
+        texts=texts,
+        model=resolve_embedding_model(),
+        keys=resolve_api_keys(),
+    )
+
+
 def add_document_chunks(
     course_id: int,
     resource_id: int,
     filename: str,
     chunks: list[str],
 ) -> int:
-    """Index document chunks into the course's ChromaDB collection."""
+    """Index document chunks into the course's ChromaDB collection.
+
+    Chunks are embedded in configurable batches (to stay within the free-tier
+    request budget) using multi-key round-robin + exponential backoff, then
+    upserted into ChromaDB with precomputed embeddings. This avoids ChromaDB
+    re-calling the embedding function (which would lose our retry logic) and
+    prevents a large PDF from blowing the 429 rate limit on one single call.
+    """
     collection = get_or_create_collection(course_id)
 
-    ids = [f"res_{resource_id}_chunk_{i}" for i in range(len(chunks))]
-    metadatas = [
-        {
-            "resource_id": resource_id,
-            "filename": filename,
-            "chunk_index": i,
-        }
-        for i in range(len(chunks))
-    ]
+    ids = []
+    documents = []
+    metadatas = []
+    all_embeddings = []
 
-    collection.upsert(ids=ids, documents=chunks, metadatas=metadatas)
-    return len(chunks)
+    batch_size = max(1, int(settings.embedding_batch_size))
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start:start + batch_size]
+        embeddings = _embed_texts_with_retry(batch)
+        for i, chunk in enumerate(batch):
+            idx = start + i
+            ids.append(f"res_{resource_id}_chunk_{idx}")
+            documents.append(chunk)
+            metadatas.append(
+                {
+                    "resource_id": resource_id,
+                    "filename": filename,
+                    "chunk_index": idx,
+                }
+            )
+            all_embeddings.append(embeddings[i])
+
+    if ids:
+        collection.upsert(
+            ids=ids,
+            documents=documents,
+            embeddings=all_embeddings,
+            metadatas=metadatas,
+        )
+    return len(ids)
+
+
+def get_resource_chunks(course_id: int, resource_id: int) -> list[dict]:
+    """Fetch all chunks belonging to a resource from ChromaDB (no embeddings)."""
+    collection = get_or_create_collection(course_id)
+    try:
+        result = collection.get(
+            where={"resource_id": resource_id},
+            include=["documents", "metadatas"],
+        )
+    except Exception:
+        return []
+
+    ids = result.get("ids", []) or []
+    documents = result.get("documents", []) or []
+    metadatas = result.get("metadatas", []) or []
+
+    chunks = []
+    for idx, chunk_id in enumerate(ids):
+        metadata = metadatas[idx] if idx < len(metadatas) else {}
+        chunks.append(
+            {
+                "id": chunk_id,
+                "chunk_index": int(metadata.get("chunk_index", idx)),
+                "filename": metadata.get("filename", ""),
+                "content": documents[idx] if idx < len(documents) else "",
+            }
+        )
+    chunks.sort(key=lambda c: c["chunk_index"])
+    return chunks
+
+
+def update_chunk_content(
+    course_id: int,
+    chunk_id: str,
+    new_content: str,
+    embedding_fn: Any,
+) -> None:
+    """Update a single chunk's text and re-embed it so RAG search stays synced."""
+    collection = get_or_create_collection(course_id)
+    new_embeddings = _embed_texts_with_retry([new_content])
+    collection.update(
+        ids=[chunk_id],
+        documents=[new_content],
+        embeddings=[new_embeddings[0]],
+    )
 
 
 def delete_resource_chunks(course_id: int, resource_id: int) -> None:

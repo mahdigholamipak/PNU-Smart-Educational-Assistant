@@ -17,6 +17,7 @@ const adminLinks = [
   { to: "/admin/users", label: "مدیریت کاربران", icon: "👥" },
   { to: "/admin/requests", label: "درخواست‌های درس", icon: "📨" },
   { to: "/admin/settings", label: "تنظیمات API", icon: "⚙️" },
+  { to: "/admin/logs", label: "لاگ سیستم", icon: "📋" },
 ];
 
 export default function Layout() {
