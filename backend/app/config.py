@@ -36,13 +36,17 @@ class Settings(BaseSettings):
     gemini_chat_model: str = "gemini-1.5-flash"
 
     # Embedding pipeline tuning (rate-limit resiliency)
-    # Number of chunks sent per embedding API call. Keep well under the
-    # free-tier request budget so a large PDF doesn't blow the RPM limit.
-    embedding_batch_size: int = 100
-    # Base delay (seconds) for exponential backoff when a 429 is received.
+    # Number of chunks sent per embedding API call (batchEmbedContents).
+    # Each request counts as 1 against the per-key RPM budget.
+    embedding_batch_size: int = 20
+    # Seconds a key is "burned" after hitting a 429 (skipped by the pool).
+    embedding_key_cooldown: int = 60
+    # Base delay (seconds) for exponential backoff when all keys are cooling.
     embedding_backoff_base: float = 10.0
     # Maximum number of retry attempts for a single embedding batch.
     embedding_max_retries: int = 5
+    # Short sleep (seconds) between successive batches to avoid spiking RPM.
+    embedding_inter_batch_delay: float = 0.5
 
     # Directories
     @property

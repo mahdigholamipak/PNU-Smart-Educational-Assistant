@@ -3,8 +3,8 @@ from typing import Any
 import chromadb
 
 from app.config import settings
+from app.services.embedding_manager import embed_batches_managed, key_manager
 from app.services.llm_service import (
-    _embed_batch_with_retry,
     get_embedding_function,
     resolve_api_keys,
     resolve_embedding_model,
@@ -28,15 +28,6 @@ def get_or_create_collection(course_id: int) -> Any:
     )
 
 
-def _embed_texts_with_retry(texts: list[str]) -> list[list[float]]:
-    """Embed texts using the shared multi-key/backoff pipeline."""
-    return _embed_batch_with_retry(
-        texts=texts,
-        model=resolve_embedding_model(),
-        keys=resolve_api_keys(),
-    )
-
-
 def add_document_chunks(
     course_id: int,
     resource_id: int,
@@ -45,43 +36,43 @@ def add_document_chunks(
 ) -> int:
     """Index document chunks into the course's ChromaDB collection.
 
-    Chunks are embedded in configurable batches (to stay within the free-tier
-    request budget) using multi-key round-robin + exponential backoff, then
-    upserted into ChromaDB with precomputed embeddings. This avoids ChromaDB
-    re-calling the embedding function (which would lose our retry logic) and
-    prevents a large PDF from blowing the 429 rate limit on one single call.
+    Fully decoupled embedding pipeline:
+      1. All chunks are embedded manually by :func:`embed_batches_managed`
+         (raw Gemini REST ``batchEmbedContents``, proactive key rotation,
+         per-key cooldown, granular 429 retry at the batch level).
+      2. The pre-computed embeddings are passed directly to ChromaDB's
+         ``upsert``, bypassing Chroma's internal embedding-function call
+         entirely (so ChromaDB never triggers Gemini API calls during upload).
     """
     collection = get_or_create_collection(course_id)
 
-    ids = []
-    documents = []
-    metadatas = []
-    all_embeddings = []
+    if not chunks:
+        return 0
 
-    batch_size = max(1, int(settings.embedding_batch_size))
-    for start in range(0, len(chunks), batch_size):
-        batch = chunks[start:start + batch_size]
-        embeddings = _embed_texts_with_retry(batch)
-        for i, chunk in enumerate(batch):
-            idx = start + i
-            ids.append(f"res_{resource_id}_chunk_{idx}")
-            documents.append(chunk)
-            metadatas.append(
-                {
-                    "resource_id": resource_id,
-                    "filename": filename,
-                    "chunk_index": idx,
-                }
-            )
-            all_embeddings.append(embeddings[i])
+    # Manual, decoupled embedding of ALL chunks via the smart key manager.
+    keys = resolve_api_keys()
+    key_manager.configure(keys)
+    all_embeddings = embed_batches_managed(
+        chunks=chunks,
+        model=resolve_embedding_model(),
+    )
 
-    if ids:
-        collection.upsert(
-            ids=ids,
-            documents=documents,
-            embeddings=all_embeddings,
-            metadatas=metadatas,
-        )
+    ids = [f"res_{resource_id}_chunk_{i}" for i in range(len(chunks))]
+    metadatas = [
+        {
+            "resource_id": resource_id,
+            "filename": filename,
+            "chunk_index": i,
+        }
+        for i in range(len(chunks))
+    ]
+
+    collection.upsert(
+        ids=ids,
+        documents=chunks,
+        embeddings=all_embeddings,
+        metadatas=metadatas,
+    )
     return len(ids)
 
 
@@ -123,7 +114,10 @@ def update_chunk_content(
 ) -> None:
     """Update a single chunk's text and re-embed it so RAG search stays synced."""
     collection = get_or_create_collection(course_id)
-    new_embeddings = _embed_texts_with_retry([new_content])
+    # Embed through the same decoupled manager (raw REST, smart key rotation).
+    keys = resolve_api_keys()
+    key_manager.configure(keys)
+    new_embeddings = embed_batches_managed([new_content], resolve_embedding_model())
     collection.update(
         ids=[chunk_id],
         documents=[new_content],

@@ -14,6 +14,16 @@ const levelLabels = {
   error: "خطا",
 };
 
+/**
+ * Detect the natural direction of a log detail string.
+ * Returns "rtl" if it contains Persian/Arabic characters, else "ltr".
+ */
+function detectTextDirection(text = "") {
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text)
+    ? "rtl"
+    : "ltr";
+}
+
 export default function AdminLogs() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -136,8 +146,9 @@ export default function AdminLogs() {
                       </button>
                     </div>
                     <pre
+                      dir={detectTextDirection(log.details)}
                       className="mt-1 overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                      style={{ direction: "ltr", textAlign: "left", wordBreak: "break-all", whiteSpace: "pre-wrap" }}
+                      style={{ wordBreak: "break-all", whiteSpace: "pre-wrap" }}
                     >
                       {log.details}
                     </pre>
