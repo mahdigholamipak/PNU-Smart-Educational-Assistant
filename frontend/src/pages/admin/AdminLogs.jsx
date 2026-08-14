@@ -21,6 +21,7 @@ export default function AdminLogs() {
   const [expanded, setExpanded] = useState({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [copiedId, setCopiedId] = useState(null);
 
   const loadLogs = async (filterLevel = level) => {
     setLoading(true);
@@ -60,6 +61,16 @@ export default function AdminLogs() {
 
   const toggleExpand = (id) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const copyDetails = async (id, text) => {
+    try {
+      await navigator.clipboard.writeText(text || "");
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    } catch (err) {
+      setError("خطا در کپی متن");
+    }
   };
 
   return (
@@ -115,7 +126,22 @@ export default function AdminLogs() {
                   )}
                 </div>
                 {expanded[log.id] && log.details && (
-                  <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300">{log.details}</pre>
+                  <div className="mt-2">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => copyDetails(log.id, log.details)}
+                        className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                      >
+                        {copiedId === log.id ? "کپی شد ✓" : "کپی"}
+                      </button>
+                    </div>
+                    <pre
+                      className="mt-1 overflow-x-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                      style={{ direction: "ltr", textAlign: "left", wordBreak: "break-all", whiteSpace: "pre-wrap" }}
+                    >
+                      {log.details}
+                    </pre>
+                  </div>
                 )}
               </div>
             ))}

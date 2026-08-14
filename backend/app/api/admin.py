@@ -488,92 +488,111 @@ def list_gemini_models(db: Session = Depends(get_db)):
 
 @router.post("/gemini/test-connection")
 def test_gemini_connection(payload: dict, db: Session = Depends(get_db)):
-    """Verify the API key and chosen models work (chat + embedding ping).
+    """Verify the API key(s) and chosen models work (chat + embedding ping).
 
-    Returns accurate feedback: distinguishes an invalid API key from a specific
-    model being unavailable, and includes HTTP status codes in failure reasons.
+    Supports multiple API keys (comma/newline separated). Iterates over all keys
+    and succeeds if at least one key can validate both the chat and embedding
+    models. Returns accurate feedback distinguishing invalid keys from
+    model-specific failures, including HTTP status codes.
     """
-    api_key = (payload.get("api_key") or "").strip() or resolve_api_key()
+    raw_keys = (payload.get("api_key") or "").strip() or ""
+    if raw_keys:
+        api_keys = [k.strip() for k in raw_keys.replace("\n", ",").split(",") if k.strip()]
+    else:
+        api_keys = resolve_api_keys()
     chat_model = (payload.get("chat_model") or "").strip() or None
     embedding_model = (payload.get("embedding_model") or "").strip() or None
 
-    if not api_key:
+    if not api_keys:
         raise HTTPException(status_code=400, detail="کلید API وارد نشده است.")
-
-    # 1. Verify key + fetch models
-    try:
-        resp = requests.get(
-            "https://generativelanguage.googleapis.com/v1beta/models",
-            params={"key": api_key},
-            timeout=15,
-        )
-        if resp.status_code in (400, 401, 403):
-            raise HTTPException(status_code=400, detail="کلید API نامعتبر است یا دسترسی ندارد.")
-        resp.raise_for_status()
-        models_data = resp.json()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        log_event(db, "error", "gemini", "خطا در تست ارتباط (لیست مدل‌ها)", str(exc))
-        raise HTTPException(status_code=502, detail="خطا در ارتباط با سرویس Gemini. لطفاً اتصال اینترنت را بررسی کنید.")
-
-    available = {m.get("name", "").replace("models/", ""): m for m in models_data.get("models", [])}
 
     # Normalize model names (strip "models/" prefix) so REST paths are correct
     chat_model = normalize_model_name(chat_model) if chat_model else None
     embedding_model = normalize_model_name(embedding_model) if embedding_model else None
 
-    # 2. Ping chat model (with fallback to first available chat model)
-    if not chat_model:
-        chat_model = next((m for m in available if "generateContent" in (available[m].get("supportedGenerationMethods") or [])), None)
-    chat_ok = False
-    chat_error = ""
-    if chat_model:
+    # Try each key until one validates both models
+    last_chat_error = ""
+    last_embed_error = ""
+    for api_key in api_keys:
+        # 1. Verify key + fetch models
         try:
-            ping_resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{chat_model}:generateContent",
+            resp = requests.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
                 params={"key": api_key},
-                json={"contents": [{"parts": [{"text": "سلام"}]}]},
                 timeout=15,
             )
-            chat_ok = ping_resp.status_code == 200
-            if not chat_ok:
-                chat_error = f" (HTTP {ping_resp.status_code})"
+            if resp.status_code in (400, 401, 403):
+                continue  # invalid key, try next
+            resp.raise_for_status()
+            models_data = resp.json()
+        except HTTPException:
+            raise
         except Exception as exc:
-            chat_ok = False
-            chat_error = f" ({type(exc).__name__})"
+            log_event(db, "error", "gemini", "خطا در تست ارتباط (لیست مدل‌ها)", str(exc))
+            continue
 
-    # 3. Ping embedding model (with fallback to first available embedding model)
-    if not embedding_model:
-        embedding_model = next((m for m in available if "embedContent" in (available[m].get("supportedGenerationMethods") or [])), None)
-    embed_ok = False
-    embed_error = ""
-    if embedding_model:
-        try:
-            embed_resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{embedding_model}:embedContent",
-                params={"key": api_key},
-                json={"content": {"parts": [{"text": "تست"}]}},
-                timeout=15,
-            )
-            embed_ok = embed_resp.status_code == 200
-            if not embed_ok:
-                embed_error = f" (HTTP {embed_resp.status_code})"
-        except Exception as exc:
-            embed_ok = False
-            embed_error = f" ({type(exc).__name__})"
+        available = {m.get("name", "").replace("models/", ""): m for m in models_data.get("models", [])}
 
-    if not chat_ok or not embed_ok:
-        reason = []
+        # 2. Ping chat model (with fallback to first available chat model)
+        if not chat_model:
+            chat_model = next((m for m in available if "generateContent" in (available[m].get("supportedGenerationMethods") or [])), None)
+        chat_ok = False
+        chat_error = ""
+        if chat_model:
+            try:
+                ping_resp = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{chat_model}:generateContent",
+                    params={"key": api_key},
+                    json={"contents": [{"parts": [{"text": "سلام"}]}]},
+                    timeout=15,
+                )
+                chat_ok = ping_resp.status_code == 200
+                if not chat_ok:
+                    chat_error = f" (HTTP {ping_resp.status_code})"
+            except Exception as exc:
+                chat_ok = False
+                chat_error = f" ({type(exc).__name__})"
+
+        # 3. Ping embedding model (with fallback to first available embedding model)
+        if not embedding_model:
+            embedding_model = next((m for m in available if "embedContent" in (available[m].get("supportedGenerationMethods") or [])), None)
+        embed_ok = False
+        embed_error = ""
+        if embedding_model:
+            try:
+                embed_resp = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{embedding_model}:embedContent",
+                    params={"key": api_key},
+                    json={"content": {"parts": [{"text": "تست"}]}},
+                    timeout=15,
+                )
+                embed_ok = embed_resp.status_code == 200
+                if not embed_ok:
+                    embed_error = f" (HTTP {embed_resp.status_code})"
+            except Exception as exc:
+                embed_ok = False
+                embed_error = f" ({type(exc).__name__})"
+
+        if chat_ok and embed_ok:
+            log_event(db, "info", "gemini", "تست ارتباط با موفقیت انجام شد", f"chat={chat_model}, embed={embedding_model}")
+            return {"ok": True, "chat_model": chat_model, "embedding_model": embedding_model}
+
+        # Record the last failure for accurate feedback
         if not chat_ok:
-            reason.append(f"مدل گفتگو ({chat_model}) قابل استفاده نیست{chat_error}")
+            last_chat_error = f"مدل گفتگو ({chat_model}) قابل استفاده نیست{chat_error}"
         if not embed_ok:
-            reason.append(f"مدل بردارساز ({embedding_model}) قابل استفاده نیست{embed_error}")
-        log_event(db, "warning", "gemini", "تست ارتباط ناموفق بود", "؛ ".join(reason))
-        raise HTTPException(status_code=400, detail="تست ناموفق بود: " + "؛ ".join(reason))
+            last_embed_error = f"مدل بردارساز ({embedding_model}) قابل استفاده نیست{embed_error}"
 
-    log_event(db, "info", "gemini", "تست ارتباط با موفقیت انجام شد", f"chat={chat_model}, embed={embedding_model}")
-    return {"ok": True, "chat_model": chat_model, "embedding_model": embedding_model}
+    # All keys failed
+    reason = []
+    if last_chat_error:
+        reason.append(last_chat_error)
+    if last_embed_error:
+        reason.append(last_embed_error)
+    if not reason:
+        reason.append("هیچ‌کدام از کلیدهای API معتبر نیستند یا دسترسی ندارند.")
+    log_event(db, "warning", "gemini", "تست ارتباط ناموفق بود", "؛ ".join(reason))
+    raise HTTPException(status_code=400, detail="تست ناموفق بود: " + "؛ ".join(reason))
 
 
 # ---------- Chunk Viewer & Editor (Task 8) ----------
