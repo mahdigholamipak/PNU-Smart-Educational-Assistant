@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 
 from app.models import Resource
-from app.services.llm_service import get_chat_model
+from app.services.chat_manager import generate_chat_response
+from app.services.llm_service import resolve_chat_model
 from app.services.vector_store import search_course_documents
 
 SYSTEM_PROMPT = """تو «دستیار آموزشی هوشمند دانشگاه پیام‌نور (PNU)» هستی. وظیفه تو کمک به دانشجویان در یادگیری
@@ -33,8 +34,8 @@ def _check_course_resources(course_id: int, db: Session) -> str | None:
     return None
 
 
-def _build_ai_answer(question: str, retrieved: list[dict]) -> tuple[str, str]:
-    """Call Gemini with the RAG context. Returns (answer, error_kind)."""
+def _build_ai_answer(question: str, retrieved: list[dict]) -> tuple[str, str, str]:
+    """Call Gemini with the RAG context. Returns (answer, error_kind, error_detail)."""
     context_blocks = []
     for i, hit in enumerate(retrieved, start=1):
         context_blocks.append(f"[منبع {i}: {hit['filename']}]\n{hit['content']}")
@@ -46,19 +47,18 @@ def _build_ai_answer(question: str, retrieved: list[dict]) -> tuple[str, str]:
     ]
 
     try:
-        model = get_chat_model()
-        response = model.invoke(messages)
-        return (response.content if hasattr(response, "content") else str(response)), KIND_OK
-    except Exception:
-        return "", KIND_AI_CONNECTION
+        answer = generate_chat_response(messages, resolve_chat_model())
+        return answer, KIND_OK, ""
+    except Exception as exc:
+        return "", KIND_AI_CONNECTION, str(exc)
 
 
 def generate_rag_answer(
     question: str,
     course_id: int,
     db: Session,
-) -> tuple[str, list[dict], str]:
-    """Generate a RAG-based answer. Returns (answer, sources, error_kind)."""
+) -> tuple[str, list[dict], str, str | None]:
+    """Generate a RAG-based answer. Returns (answer, sources, error_kind, error_detail)."""
     # 1. Check course-level resource availability
     resource_kind = _check_course_resources(course_id, db)
     if resource_kind == KIND_NO_RESOURCES:
@@ -67,6 +67,7 @@ def generate_rag_answer(
             "لطفاً از مدیر سیستم بخواهید منابع درس را اضافه کند.",
             [],
             KIND_NO_RESOURCES,
+            None,
         )
     if resource_kind == KIND_BROKEN_RESOURCES:
         return (
@@ -74,6 +75,7 @@ def generate_rag_answer(
             "لطفاً با مدیر سیستم تماس بگیرید تا منابع بررسی و مجدداً بارگذاری شوند.",
             [],
             KIND_BROKEN_RESOURCES,
+            None,
         )
 
     # 2. Retrieve relevant chunks scoped to the course
@@ -86,10 +88,11 @@ def generate_rag_answer(
             "لطفاً سؤال را دقیق‌تر یا مرتبط با مطالب درسی مطرح کنید.",
             [],
             KIND_NO_RESOURCES,
+            None,
         )
 
     # 4. Build context and call Gemini
-    answer, ai_kind = _build_ai_answer(question, retrieved)
+    answer, ai_kind, ai_error = _build_ai_answer(question, retrieved)
 
     # 5. Build source citations (unique by filename)
     sources = []
@@ -114,6 +117,7 @@ def generate_rag_answer(
             "لطفاً بعداً دوباره تلاش کنید یا با مدیر سیستم تماس بگیرید.",
             sources,
             KIND_AI_CONNECTION,
+            ai_error,
         )
 
-    return answer, sources, KIND_OK
+    return answer, sources, KIND_OK, None

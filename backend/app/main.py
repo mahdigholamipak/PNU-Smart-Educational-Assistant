@@ -17,6 +17,15 @@ def _run_lightweight_migrations() -> None:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE resources ADD COLUMN error_message TEXT"))
 
+    # Chat sessions: add updated_at for "last edited" history sorting.
+    if "chat_sessions" in inspector.get_table_names():
+        columns = {col["name"] for col in inspector.get_columns("chat_sessions")}
+        if "updated_at" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN updated_at DATETIME"))
+                # Backfill existing rows with their created_at value.
+                conn.execute(text("UPDATE chat_sessions SET updated_at = created_at WHERE updated_at IS NULL"))
+
 app = FastAPI(
     title="PNU Smart Educational Assistant API",
     description="RAG-based AI chat API for university students",

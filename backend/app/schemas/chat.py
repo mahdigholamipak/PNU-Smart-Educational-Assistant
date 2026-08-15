@@ -23,6 +23,7 @@ class ChatSessionResponse(BaseModel):
     course_title: str | None = None
     title: str
     created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

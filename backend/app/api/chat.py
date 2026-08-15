@@ -1,4 +1,6 @@
 import json
+import traceback
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -34,10 +36,37 @@ def create_session(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Create a new chat session scoped to a course."""
+    """Create a new chat session scoped to a course.
+
+    Reuses an existing EMPTY session for this user+course if one exists, so we
+    don't pile up duplicate empty sessions in the history list.
+    """
     course = db.query(Course).filter(Course.id == payload.course_id, Course.is_active.is_(True)).first()
     if not course:
         raise HTTPException(status_code=404, detail="درس مورد نظر یافت نشد")
+
+    existing = (
+        db.query(ChatSession)
+        .filter(
+            ChatSession.user_id == current_user.id,
+            ChatSession.course_id == course.id,
+        )
+        .order_by(ChatSession.updated_at.desc())
+        .first()
+    )
+    if existing is not None and not existing.messages:
+        # Reuse the empty session: bump its timestamp so it floats to the top.
+        existing.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(existing)
+        return ChatSessionResponse(
+            id=existing.id,
+            course_id=existing.course_id,
+            course_title=course.title,
+            title=existing.title,
+            created_at=existing.created_at,
+            updated_at=existing.updated_at,
+        )
 
     session = ChatSession(user_id=current_user.id, course_id=course.id, title=course.title)
     db.add(session)
@@ -49,6 +78,7 @@ def create_session(
         course_title=course.title,
         title=session.title,
         created_at=session.created_at,
+        updated_at=session.updated_at,
     )
 
 
@@ -61,7 +91,7 @@ def list_sessions(
     sessions = (
         db.query(ChatSession)
         .filter(ChatSession.user_id == current_user.id)
-        .order_by(ChatSession.created_at.desc())
+        .order_by(ChatSession.updated_at.desc())
         .all()
     )
     result = []
@@ -73,6 +103,7 @@ def list_sessions(
                 course_title=session.course.title if session.course else None,
                 title=session.title,
                 created_at=session.created_at,
+                updated_at=session.updated_at,
             )
         )
     return result
@@ -109,6 +140,7 @@ def get_session(
         course_title=session.course.title if session.course else None,
         title=session.title,
         created_at=session.created_at,
+        updated_at=session.updated_at,
         messages=messages,
     )
 
@@ -126,23 +158,50 @@ def send_message(
     # Persist the user message
     user_message = ChatMessage(session_id=session.id, role="user", content=payload.content)
     db.add(user_message)
+
+    # Dynamic session naming: use the first prompt as the title if the session
+    # still carries the default course title (i.e., no custom title yet).
+    if session.title == (session.course.title if session.course else None):
+        session.title = payload.content[:40]
+
+    # Bump "last edited" timestamp so the session rises to the top of history.
+    session.updated_at = datetime.utcnow()
     db.commit()
 
-    # Generate RAG answer scoped to the session's course
-    answer, sources, error_kind = generate_rag_answer(
-        question=payload.content,
-        course_id=session.course_id,
-        db=db,
-    )
+    # Generate RAG answer scoped to the session's course.
+    # Wrap the entire generation block so ANY exception is logged with a full
+    # stack trace and surfaced to the user — never swallowed silently.
+    try:
+        answer, sources, error_kind, error_detail = generate_rag_answer(
+            question=payload.content,
+            course_id=session.course_id,
+            db=db,
+        )
+    except Exception:
+        log_event(
+            db,
+            level="error",
+            source="chat",
+            message="خطای غیرمنتظره در تولید پاسخ",
+            details=f"{traceback.format_exc()}\ncourse_id={session.course_id} — question='{payload.content[:200]}'",
+            commit=True,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="خطا در دریافت پاسخ. جزئیات کامل در لاگ سیستم ثبت شد.",
+        )
 
-    # If AI connection failed, log it and surface a transparent error
+    # If AI connection failed, log the REAL error and surface a transparent error
     if error_kind == KIND_AI_CONNECTION:
         log_event(
             db,
             level="error",
             source="chat",
             message="ارتباط با مدل هوش مصنوعی شکست خورد",
-            details=f"course_id={session.course_id} — question='{payload.content[:200]}'",
+            details=(
+                f"course_id={session.course_id} — question='{payload.content[:200]}'\n"
+                f"error_detail={error_detail or 'unknown'}"
+            ),
         )
         raise HTTPException(
             status_code=502,
@@ -159,6 +218,8 @@ def send_message(
         sources_json=json.dumps(sources, ensure_ascii=False) if sources else None,
     )
     db.add(assistant_message)
+    # Bump "last edited" timestamp again after the AI reply is persisted.
+    session.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(assistant_message)
 

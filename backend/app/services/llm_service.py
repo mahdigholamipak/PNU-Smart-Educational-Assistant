@@ -121,11 +121,13 @@ class GeminiChromaEmbeddingFunction(EmbeddingFunction):
         """Stable name used by ChromaDB when persisting collection config."""
         return f"GeminiChromaEmbeddingFunction-{self._model}"
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return embed_batch_managed(list(texts), self._model)
+    def embed_documents(self, input: list[str]) -> list[list[float]]:
+        return embed_batch_managed(list(input), self._model)
 
-    def embed_query(self, text: str) -> list[float]:
-        return embed_batch_managed([text], self._model)[0]
+    def embed_query(self, input: str) -> Embeddings:
+        if isinstance(input, str):
+            return embed_batch_managed([input], self._model)
+        return embed_batch_managed(list(input), self._model)
 
     def get_config(self) -> dict[str, Any]:
         """Return a serializable configuration so ChromaDB can rebuild this function."""

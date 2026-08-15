@@ -135,8 +135,11 @@ def _embed_batch_raw(texts: list[str], model: str, api_key: str) -> list[list[fl
     )
 
     if resp.status_code == 429:
-        raise RateLimitError(f"429 rate limit exceeded for key")
-    resp.raise_for_status()
+        raise RateLimitError(f"429 rate limit exceeded for key: {resp.text[:500]}")
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"Gemini API returned HTTP {resp.status_code}: {resp.text[:1000]}"
+        )
 
     data = resp.json()
     embeddings = []
