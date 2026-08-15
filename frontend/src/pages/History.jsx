@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios.client";
 import Spinner from "../components/Spinner";
+import MarkdownRenderer from "../components/MarkdownRenderer";
 
 export default function History() {
   const navigate = useNavigate();
@@ -153,7 +154,11 @@ export default function History() {
                             : "border border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                         }`}
                       >
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                        {msg.role === "user" ? (
+                          <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                        ) : (
+                          <MarkdownRenderer content={msg.content} />
+                        )}
                         {msg.sources && msg.sources.length > 0 && (
                           <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-600">
                             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">منابع:</p>

@@ -17,6 +17,8 @@ export default function AdminSettings() {
   const [embeddingModel, setEmbeddingModel] = useState("");
   const [apiKeys, setApiKeys] = useState([""]);
   const [showKeys, setShowKeys] = useState([]);
+  const [usage, setUsage] = useState([]);
+  const [usageLoading, setUsageLoading] = useState(false);
 
   const loadSettings = () => {
     setLoading(true);
@@ -39,6 +41,20 @@ export default function AdminSettings() {
   };
 
   useEffect(loadSettings, []);
+
+  const loadUsage = () => {
+    setUsageLoading(true);
+    api
+      .get("/admin/api-usage")
+      .then((res) => setUsage(res.data || []))
+      .catch(() => setUsage([]))
+      .finally(() => setUsageLoading(false));
+  };
+
+  useEffect(() => {
+    loadUsage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const getValue = (key) => {
     const setting = settings.find((s) => s.key === key);
@@ -91,6 +107,7 @@ export default function AdminSettings() {
       await api.put("/admin/settings/gemini_api_key", { value });
       setMessage("کلید API با موفقیت ذخیره شد");
       loadSettings();
+      loadUsage();
       await fetchModels(value);
     } catch (err) {
       setError(err.response?.data?.detail || "خطا در ذخیره کلید");
@@ -246,6 +263,63 @@ export default function AdminSettings() {
             </button>
           </div>
         </form>
+      </div>
+
+      <div className="card">
+        <h2 className="mb-4 text-lg font-semibold text-slate-700 dark:text-slate-200">مانیتورینگ مصرف API</h2>
+        <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+          تعداد درخواست‌ها و توکن‌های مصرف‌شده به‌ازای هر کلید API.
+        </p>
+
+        <div className="mb-3 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={loadUsage}
+            disabled={usageLoading}
+            className="btn-secondary !px-3 !py-1 text-xs"
+          >
+            {usageLoading ? <Spinner size="sm" /> : "به‌روزرسانی"}
+          </button>
+        </div>
+
+        {usage.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            هنوز مصرفی ثبت نشده است. پس از اولین درخواست به مدل هوش مصنوعی، آمار اینجا نمایش داده می‌شود.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-right dark:border-slate-600">
+                  <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-200">کلید API</th>
+                  <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-200">مدل</th>
+                  <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-200">تعداد درخواست‌ها</th>
+                  <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-200">توکن مصرفی</th>
+                  <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-200">آخرین به‌روزرسانی</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usage.map((u, i) => (
+                  <tr key={i} className="border-b border-slate-100 dark:border-slate-700">
+                    <td className="px-3 py-2 font-mono text-xs text-slate-600 dark:text-slate-300" dir="ltr">
+                      {u.api_key_masked}
+                    </td>
+                    <td className="px-3 py-2 text-slate-700 dark:text-slate-200">{u.model}</td>
+                    <td className="px-3 py-2 text-slate-700 dark:text-slate-200">
+                      {Number(u.total_requests || 0).toLocaleString("fa-IR")}
+                    </td>
+                    <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">
+                      {Number(u.total_tokens_used || 0).toLocaleString("fa-IR")}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+                      {u.updated_at ? new Date(u.updated_at).toLocaleString("fa-IR") : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="card">

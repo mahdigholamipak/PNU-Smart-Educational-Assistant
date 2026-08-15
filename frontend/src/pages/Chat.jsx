@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../api/axios.client";
 import Spinner from "../components/Spinner";
+import MarkdownRenderer from "../components/MarkdownRenderer";
 
 export default function Chat() {
   const [searchParams] = useSearchParams();
@@ -39,6 +40,8 @@ export default function Chat() {
       const res = await api.get(`/chat/sessions/${sessionId}`);
       setSession({ id: res.data.id, course_id: res.data.course_id, course_title: res.data.course_title, title: res.data.title });
       setMessages(res.data.messages || []);
+      // Normalize the URL so the active session id is always reflected.
+      navigate(`/chat?session=${res.data.id}`, { replace: true });
     } catch (err) {
       setError(err.response?.data?.detail || "خطا در بارگذاری گفتگو");
     } finally {
@@ -53,6 +56,9 @@ export default function Chat() {
       const res = await api.post("/chat/sessions", { course_id: Number(courseId) });
       setSession(res.data);
       setMessages([]);
+      // Immediately persist the new session id in the URL so subsequent
+      // messages (and refreshes) reuse this exact session — no duplicates.
+      navigate(`/chat?session=${res.data.id}`, { replace: true });
     } catch (err) {
       setError(err.response?.data?.detail || "خطا در ایجاد گفتگو");
     } finally {
@@ -73,6 +79,7 @@ export default function Chat() {
     try {
       const res = await api.post(`/chat/sessions/${session.id}/messages`, {
         content: userMsg.content,
+        session_id: session.id,
       });
       setMessages((prev) => [...prev, res.data]);
       setConnectionError(false); // reset on success
@@ -119,7 +126,7 @@ export default function Chat() {
         <select
           value={session?.course_id || ""}
           onChange={(e) => {
-            if (e.target.value) createNewSession(e.target.value);
+            if (e.target.value) navigate(`/chat?course=${e.target.value}`, { replace: true });
           }}
           className="input-field w-full sm:w-56"
         >
@@ -158,7 +165,11 @@ export default function Chat() {
                   : "border border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
               }`}
             >
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+              {msg.role === "user" ? (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+              ) : (
+                <MarkdownRenderer content={msg.content} />
+              )}
 
               {msg.sources && msg.sources.length > 0 && (
                 <div className="mt-3 border-t border-slate-200 pt-2 dark:border-slate-600">

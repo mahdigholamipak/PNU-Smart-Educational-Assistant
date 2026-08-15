@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.core.deps import require_admin
 from app.database import get_db
-from app.models import Course, CourseRequest, Resource, Setting, SystemLog, User
+from app.models import ApiUsage, Course, CourseRequest, Resource, Setting, SystemLog, User
 from app.schemas.course import CourseCreateRequest, CourseResponse, CourseUpdateRequest
 from app.schemas.request import CourseRequestAdminUpdate, CourseRequestResponse
 from app.schemas.resource import ResourceResponse, SettingResponse, SettingUpdateRequest
@@ -398,6 +398,29 @@ def update_setting(key: str, payload: SettingUpdateRequest, db: Session = Depend
     db.commit()
     db.refresh(setting)
     return setting
+
+
+# ---------- API Usage Monitoring (Task 3) ----------
+
+
+@router.get("/api-usage")
+def list_api_usage(db: Session = Depends(get_db)):
+    """List aggregated API usage per key (masked), newest/most-used first."""
+    rows = (
+        db.query(ApiUsage)
+        .order_by(ApiUsage.total_tokens_used.desc(), ApiUsage.updated_at.desc())
+        .all()
+    )
+    return [
+        {
+            "api_key_masked": row.api_key_masked,
+            "model": row.model,
+            "total_requests": row.total_requests,
+            "total_tokens_used": row.total_tokens_used,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        }
+        for row in rows
+    ]
 
 
 # ---------- System Logs (Task 3) ----------

@@ -71,6 +71,12 @@ def _generate_content_raw(
     parts = (candidates[0].get("content") or {}).get("parts") or []
     if not parts:
         raise RuntimeError("Gemini returned empty content")
+
+    # Record token usage for this key (best-effort; never breaks the call).
+    usage = data.get("usageMetadata") or {}
+    tokens = usage.get("totalTokenCount") or 0
+    key_manager.record_usage(api_key, model, tokens)
+
     return parts[0].get("text", "")
 
 

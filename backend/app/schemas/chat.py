@@ -34,3 +34,4 @@ class ChatSessionDetailResponse(ChatSessionResponse):
 
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=8000)
+    session_id: int | None = None

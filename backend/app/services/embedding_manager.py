@@ -24,6 +24,8 @@ from typing import Any
 import requests
 
 from app.config import settings
+from app.database import SessionLocal
+from app.models import ApiUsage
 
 
 class RateLimitError(RuntimeError):
@@ -93,6 +95,44 @@ class SmartKeyManager:
         with self._lock:
             return list(self._keys)
 
+    @staticmethod
+    def _mask_key(api_key: str) -> str:
+        """Return a masked version of the key for safe display/storage."""
+        if len(api_key) <= 8:
+            return "****"
+        return f"{api_key[:4]}****{api_key[-4:]}"
+
+    def record_usage(self, api_key: str, model: str, tokens: int) -> None:
+        """Increment request/token counters for ``api_key`` in the DB.
+
+        Uses its own DB session because the manager runs outside the request
+        context. Failures here are swallowed so usage tracking never breaks the
+        actual API call.
+        """
+        if not api_key:
+            return
+        masked = self._mask_key(api_key)
+        tokens = max(0, int(tokens or 0))
+        db = SessionLocal()
+        try:
+            row = db.query(ApiUsage).filter(ApiUsage.api_key_masked == masked).first()
+            if row:
+                row.total_requests += 1
+                row.total_tokens_used += tokens
+            else:
+                row = ApiUsage(
+                    api_key_masked=masked,
+                    model=model or "unknown",
+                    total_requests=1,
+                    total_tokens_used=tokens,
+                )
+                db.add(row)
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+
 
 # Module-level singleton so rotation state survives across all batches of a
 # document and across successive uploads within the same process.
@@ -150,6 +190,12 @@ def _embed_batch_raw(texts: list[str], model: str, api_key: str) -> list[list[fl
         raise RuntimeError(
             f"Embedding response count mismatch: got {len(embeddings)}, expected {len(texts)}"
         )
+
+    # Record token usage for this key (best-effort; never breaks the call).
+    usage = data.get("usageMetadata") or {}
+    tokens = usage.get("totalTokenCount") or 0
+    key_manager.record_usage(api_key, model, tokens)
+
     return embeddings
 
 

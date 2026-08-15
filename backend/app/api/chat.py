@@ -152,8 +152,17 @@ def send_message(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send a user message and receive a RAG-based assistant answer."""
-    session = _get_owned_session(session_id, current_user.id, db)
+    """Send a user message and receive a RAG-based assistant answer.
+
+    If ``payload.session_id`` is provided it takes precedence over the path
+    parameter. A provided session_id NEVER creates a new session — it only
+    appends the message to the existing (owned) session and bumps its
+    ``updated_at`` timestamp.
+    """
+    # Strictly enforce: if a session_id is supplied in the payload, use it and
+    # never create a new session. Fall back to the path parameter otherwise.
+    target_id = payload.session_id if payload.session_id is not None else session_id
+    session = _get_owned_session(target_id, current_user.id, db)
 
     # Persist the user message
     user_message = ChatMessage(session_id=session.id, role="user", content=payload.content)
@@ -162,7 +171,7 @@ def send_message(
     # Dynamic session naming: use the first prompt as the title if the session
     # still carries the default course title (i.e., no custom title yet).
     if session.title == (session.course.title if session.course else None):
-        session.title = payload.content[:40]
+        session.title = payload.content[:30]
 
     # Bump "last edited" timestamp so the session rises to the top of history.
     session.updated_at = datetime.utcnow()
