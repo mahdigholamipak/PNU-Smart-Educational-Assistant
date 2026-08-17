@@ -53,9 +53,35 @@ export default function AdminResources() {
     }
   };
 
+  // Lightweight resource-only fetch used by the polling effect below. It does
+  // NOT toggle the full-page loading spinner so background refreshes are silent.
+  const fetchResources = async () => {
+    try {
+      const res = await api.get("/admin/resources");
+      setResources(res.data);
+    } catch (err) {
+      // Silent: polling failures shouldn't spam the user with errors.
+    }
+  };
+
   useEffect(() => {
     loadData();
   }, []);
+
+  // Poll every 3 seconds while any resource is in "processing" state so the
+  // badge automatically transitions to "آماده"/"ناموفق" once the background
+  // reprocess job finishes. Stops polling automatically when none are pending.
+  useEffect(() => {
+    const hasProcessing = resources.some((r) => r.status === "processing");
+    if (!hasProcessing) return undefined;
+
+    const interval = setInterval(() => {
+      fetchResources();
+    }, 3000);
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resources]);
 
   const handleFileSelect = (files) => {
     const file = files?.[0] || null;
@@ -125,16 +151,27 @@ export default function AdminResources() {
     setReprocessingId(id);
     setMessage("");
     setError("");
+    // Optimistic update: flip the badge to "در حال پردازش" immediately so the
+    // UI reacts instantly instead of waiting for the background job to finish.
+    setResources((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, status: "processing", error_message: null } : r))
+    );
     try {
       const res = await api.post(`/admin/resources/${id}/reprocess`);
-      if (res.data?.status === "ready") {
+      if (res.data?.status === "processing") {
+        setMessage("پردازش مجدد آغاز شد. وضعیت به‌صورت خودکار به‌روزرسانی می‌شود...");
+      } else if (res.data?.status === "ready") {
         setMessage("منبع مجدداً پردازش شد");
       } else {
         setError("پردازش مجدد ناموفق بود. برای جزئیات به لاگ سیستم مراجعه کنید.");
       }
+      // Refresh once immediately so the server-confirmed "processing" state is
+      // reflected; the polling effect below keeps it updated until done.
       loadData();
     } catch (err) {
       setError(err.response?.data?.detail || "خطا در پردازش مجدد");
+      // Revert the optimistic status on failure so the badge doesn't stay stuck.
+      loadData();
     } finally {
       setReprocessingId(null);
     }
@@ -530,7 +567,7 @@ export default function AdminResources() {
                       <span className="text-xs text-slate-400 dark:text-slate-500">{chunk.filename}</span>
                     </div>
                     <textarea
-                      className="input-field min-h-[100px] text-xs"
+                      className="input-field chunk-textarea min-h-[100px] text-xs"
                       value={chunkEdits[chunk.id] ?? chunk.content}
                       onChange={(e) => setChunkEdits((prev) => ({ ...prev, [chunk.id]: e.target.value }))}
                       dir="auto"

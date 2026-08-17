@@ -4,6 +4,19 @@ import api from "../api/axios.client";
 import Spinner from "../components/Spinner";
 import MarkdownRenderer from "../components/MarkdownRenderer";
 
+/** Deduplicate a sources array by filename (keep first occurrence). */
+function dedupeSources(sources) {
+  if (!Array.isArray(sources)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const src of sources) {
+    if (!src || seen.has(src.filename)) continue;
+    seen.add(src.filename);
+    result.push(src);
+  }
+  return result;
+}
+
 export default function Chat() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -19,16 +32,37 @@ export default function Chat() {
   const [courses, setCourses] = useState([]);
 
   const messagesEndRef = useRef(null);
+  // Guards the mount effect so it runs once per distinct course/session key,
+  // preventing the infinite loop caused by our own URL navigation.
+  const handledRef = useRef(null);
 
   useEffect(() => {
     api.get("/courses").then((res) => setCourses(res.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
+    const key = initialSessionId
+      ? `session:${initialSessionId}`
+      : initialCourseId
+      ? `course:${initialCourseId}`
+      : null;
+    if (!key || handledRef.current === key) return;
+    handledRef.current = key;
+
     if (initialSessionId) {
       loadExistingSession(initialSessionId);
     } else if (initialCourseId) {
-      createNewSession(initialCourseId);
+      // Draft state — do NOT create a DB session yet. It is created lazily on
+      // the user's first message.
+      const course = courses.find((c) => String(c.id) === String(initialCourseId));
+      setSession({
+        id: null,
+        course_id: Number(initialCourseId),
+        course_title: course?.title || "گفتگو با دستیار هوشمند",
+        title: "",
+      });
+      setMessages([]);
+      setError("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCourseId, initialSessionId]);
@@ -40,27 +74,8 @@ export default function Chat() {
       const res = await api.get(`/chat/sessions/${sessionId}`);
       setSession({ id: res.data.id, course_id: res.data.course_id, course_title: res.data.course_title, title: res.data.title });
       setMessages(res.data.messages || []);
-      // Normalize the URL so the active session id is always reflected.
-      navigate(`/chat?session=${res.data.id}`, { replace: true });
     } catch (err) {
       setError(err.response?.data?.detail || "خطا در بارگذاری گفتگو");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const createNewSession = async (courseId) => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await api.post("/chat/sessions", { course_id: Number(courseId) });
-      setSession(res.data);
-      setMessages([]);
-      // Immediately persist the new session id in the URL so subsequent
-      // messages (and refreshes) reuse this exact session — no duplicates.
-      navigate(`/chat?session=${res.data.id}`, { replace: true });
-    } catch (err) {
-      setError(err.response?.data?.detail || "خطا در ایجاد گفتگو");
     } finally {
       setLoading(false);
     }
@@ -77,9 +92,21 @@ export default function Chat() {
     setError("");
 
     try {
-      const res = await api.post(`/chat/sessions/${session.id}/messages`, {
+      let targetSession = session;
+
+      // Lazily create the session on the first message (draft -> real session).
+      if (!session.id) {
+        const created = await api.post("/chat/sessions", { course_id: session.course_id });
+        targetSession = created.data;
+        setSession(targetSession);
+        // Mark this session as handled so the mount effect won't re-fetch it.
+        handledRef.current = `session:${targetSession.id}`;
+        navigate(`/chat?session=${targetSession.id}`, { replace: true });
+      }
+
+      const res = await api.post(`/chat/sessions/${targetSession.id}/messages`, {
         content: userMsg.content,
-        session_id: session.id,
+        session_id: targetSession.id,
       });
       setMessages((prev) => [...prev, res.data]);
       setConnectionError(false); // reset on success
@@ -168,14 +195,14 @@ export default function Chat() {
               {msg.role === "user" ? (
                 <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
               ) : (
-                <MarkdownRenderer content={msg.content} />
+                <MarkdownRenderer content={msg.content} sources={msg.sources} />
               )}
 
               {msg.sources && msg.sources.length > 0 && (
                 <div className="mt-3 border-t border-slate-200 pt-2 dark:border-slate-600">
                   <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">منابع:</p>
                   <ul className="mt-1 space-y-1">
-                    {msg.sources.map((src, i) => (
+                    {dedupeSources(msg.sources).map((src, i) => (
                       <li key={i} className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                         <span>📄</span>
                         <span className="truncate">{src.filename}</span>

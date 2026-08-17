@@ -1,95 +1,237 @@
+import { Children, cloneElement, isValidElement, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import remarkGfm from "remark-gfm";
 import rehypeKatex from "rehype-katex";
+import reactStringReplace from "react-string-replace";
+import {
+  autoUpdate,
+  flip,
+  offset,
+  shift,
+  useDismiss,
+  useFloating,
+  useHover,
+  useInteractions,
+} from "@floating-ui/react";
 import "katex/dist/katex.min.css";
 
 /**
  * Matches citation references like:
- *   [منبع ۱], [منبع 2], [1], [2,3], [منبع ۱ و ۲]
- * and wraps them in a styled, clickable badge.
+ *   [1], [ 1 ], [2,3], [4, 5], [منبع 1], [ منبع ۱ ], [منبع ۱ و ۲]
+ *   (3), ( 3 ), (2,3), (منبع 3), ( منبع ۳ )
+ * and extracts the numeric indices (Persian ۰-۹ + ASCII).
+ * Tolerates optional whitespace inside the brackets and after "منبع".
  */
-const CITATION_REGEX = /\[(منبع\s*[\u06F0-\u06F9\d][\u06F0-\u06F9\d\sو،,]*|\d[\d\sو،,]*)\]/g;
+const CITATION_REGEX =
+  /(?:\[\s*(?:منبع\s*)?([\u06F0-\u06F9\d][\u06F0-\u06F9\d\sو،,]*)\s*\]|\(\s*(?:منبع\s*)?([\u06F0-\u06F9\d][\u06F0-\u06F9\d\sو،,]*)\s*\))/g;
 
-function CitationBadge({ children }) {
+/** Convert Persian/Arabic digits to ASCII. */
+function toAsciiDigits(str) {
+  return str
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+}
+
+/** Extract a list of numeric indices from a citation match like "منبع ۱ و ۲" or "2,3". */
+function extractIndices(raw) {
+  const cleaned = toAsciiDigits(raw).replace(/منبع/g, "");
+  const nums = cleaned.match(/\d+/g) || [];
+  return nums.map(Number).filter((n) => n > 0);
+}
+
+/**
+ * A single citation badge with its own isolated tooltip state.
+ *
+ * - `isOpen` lives in this component instance, so clicking one badge never
+ *   opens another badge that references the same source ID.
+ * - Floating UI smartly flips the popover below the badge when there isn't
+ *   enough room above (e.g. citation on the first line), and shifts it to
+ *   keep it fully inside the viewport.
+ */
+function CitationBadge({ label, source }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const { refs, floatingStyles, context } = useFloating({
+    open: isOpen,
+    onOpenChange: setIsOpen,
+    placement: "top",
+    middleware: [offset(8), flip(), shift({ padding: 8 })],
+    whileElementsMounted: autoUpdate,
+  });
+
+  const hover = useHover(context, { move: false });
+  const dismiss = useDismiss(context, { outsidePress: true });
+
+  const { getReferenceProps, getFloatingProps } = useInteractions([
+    hover,
+    dismiss,
+  ]);
+
+  const toggle = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsOpen((v) => !v);
+  };
+
   return (
-    <a
-      href="#sources"
-      onClick={(e) => e.preventDefault()}
-      className="citation-badge"
-      title="منبع"
-    >
-      {children}
-    </a>
+    <span className="relative inline-flex align-middle">
+      <button
+        type="button"
+        ref={refs.setReference}
+        {...getReferenceProps()}
+        onClick={toggle}
+        className={`citation-badge ${isOpen ? "citation-badge-active" : ""}`}
+        title={source ? `منبع: ${source.filename}` : "منبع"}
+        aria-expanded={isOpen}
+      >
+        {label}
+      </button>
+      {isOpen && source && (
+        <div
+          ref={refs.setFloating}
+          style={floatingStyles}
+          {...getFloatingProps()}
+          className="citation-popover"
+          role="tooltip"
+        >
+          <div className="max-h-64 overflow-y-auto">
+            <span className="block text-xs font-bold text-slate-800 dark:text-slate-100">
+              📄 {source.filename}
+            </span>
+            {source.page != null && (
+              <span className="mt-1 block text-xs text-slate-600 dark:text-slate-300">
+                صفحه {source.page}
+              </span>
+            )}
+            {source.snippet && (
+              <span className="mt-1 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                {source.snippet}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </span>
   );
 }
 
 /**
- * Custom text renderer that splits plain text and wraps citation patterns
- * in styled badges while leaving the rest of the text untouched.
+ * Deeply intercepts text nodes and wraps citation patterns (e.g. "[1]",
+ * "[منبع ۱]", "[4, 5]", "(3)") in interactive badges. Recursively processes
+ * React element children so citations inside <li>, <td>, <strong>, <em>,
+ * <blockquote>, etc. are all converted — not just plain <p> paragraphs.
+ *
+ * Code blocks (<code>/<pre>) are skipped so citations inside code stay literal.
  */
-function renderTextWithCitations(text) {
-  const parts = [];
-  let lastIndex = 0;
-  let match;
-  let key = 0;
-
-  CITATION_REGEX.lastIndex = 0;
-  while ((match = CITATION_REGEX.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
+function renderWithCitations(children, sources) {
+  return Children.map(children, (child) => {
+    // Plain text node → scan for citations.
+    if (typeof child === "string") {
+      return reactStringReplace(child, CITATION_REGEX, (match, i) => {
+        const indices = extractIndices(match);
+        if (indices.length === 0) {
+          return `[${match}]`;
+        }
+        if (indices.length === 1) {
+          const idx = indices[0];
+          return (
+            <CitationBadge
+              key={i}
+              label={String(idx)}
+              source={sources?.[idx - 1]}
+            />
+          );
+        }
+        // Multi-citation: render one badge per source index side-by-side.
+        return (
+          <span key={i} className="inline-flex items-center gap-1">
+            {indices.map((idx) => (
+              <CitationBadge
+                key={idx}
+                label={String(idx)}
+                source={sources?.[idx - 1]}
+              />
+            ))}
+          </span>
+        );
+      });
     }
-    parts.push(<CitationBadge key={key++}>{match[0]}</CitationBadge>);
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-  return parts.length ? parts : text;
+
+    // React element → recurse into its children (skip code/pre).
+    if (isValidElement(child)) {
+      if (child.type === CodeComponent || child.type === PreComponent) {
+        return child; // citations in code stay literal
+      }
+      if (child.props?.children) {
+        return cloneElement(child, {
+          ...child.props,
+          children: renderWithCitations(child.props.children, sources),
+        });
+      }
+      return child;
+    }
+
+    return child;
+  });
 }
 
-export default function MarkdownRenderer({ content }) {
+/** Code block / inline code — citations inside code stay literal. */
+function CodeComponent({ inline, className, children }) {
+  if (inline) {
+    return (
+      <code className="rounded bg-slate-200/70 px-1.5 py-0.5 font-mono text-[0.85em] text-rose-600 dark:bg-slate-600/60 dark:text-rose-300">
+        {children}
+      </code>
+    );
+  }
+  return (
+    <pre className="mb-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-slate-100 last:mb-0 dark:bg-slate-950">
+      <code className={className}>{children}</code>
+    </pre>
+  );
+}
+
+/** Pre wrapper — pass through (CodeComponent handles the actual <pre>). */
+function PreComponent({ children }) {
+  return <>{children}</>;
+}
+
+export default function MarkdownRenderer({ content, sources }) {
   return (
     <div className="markdown-body text-sm leading-relaxed">
       <ReactMarkdown
         remarkPlugins={[remarkMath, remarkGfm]}
         rehypePlugins={[rehypeKatex]}
         components={{
-          // Wrap text nodes so citations become badges
-          text: ({ node, children }) => {
-            const raw = String(children ?? "");
-            return <>{renderTextWithCitations(raw)}</>;
-          },
-          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+          // Intercept paragraphs so citations become interactive badges.
+          p: ({ children }) => (
+            <p className="mb-2 last:mb-0">
+              {renderWithCitations(children, sources)}
+            </p>
+          ),
           ul: ({ children }) => (
             <ul className="mb-2 list-disc space-y-1 pr-5 last:mb-0">{children}</ul>
           ),
           ol: ({ children }) => (
             <ol className="mb-2 list-decimal space-y-1 pr-5 last:mb-0">{children}</ol>
           ),
-          li: ({ children }) => <li>{children}</li>,
-          strong: ({ children }) => (
-            <strong className="font-bold text-slate-900 dark:text-white">{children}</strong>
+          li: ({ children }) => (
+            <li>{renderWithCitations(children, sources)}</li>
           ),
-          em: ({ children }) => <em className="italic">{children}</em>,
-          code: ({ inline, className, children }) => {
-            if (inline) {
-              return (
-                <code className="rounded bg-slate-200/70 px-1.5 py-0.5 font-mono text-[0.85em] text-rose-600 dark:bg-slate-600/60 dark:text-rose-300">
-                  {children}
-                </code>
-              );
-            }
-            return (
-              <pre className="mb-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-slate-100 last:mb-0 dark:bg-slate-950">
-                <code className={className}>{children}</code>
-              </pre>
-            );
-          },
-          pre: ({ children }) => <>{children}</>,
+          strong: ({ children }) => (
+            <strong className="font-bold text-slate-900 dark:text-white">
+              {renderWithCitations(children, sources)}
+            </strong>
+          ),
+          em: ({ children }) => (
+            <em className="italic">{renderWithCitations(children, sources)}</em>
+          ),
+          code: CodeComponent,
+          pre: PreComponent,
           blockquote: ({ children }) => (
             <blockquote className="mb-2 border-r-4 border-slate-300 pr-3 text-slate-600 last:mb-0 dark:border-slate-600 dark:text-slate-300">
-              {children}
+              {renderWithCitations(children, sources)}
             </blockquote>
           ),
           a: ({ href, children }) => (
@@ -109,11 +251,13 @@ export default function MarkdownRenderer({ content }) {
           ),
           th: ({ children }) => (
             <th className="border border-slate-300 bg-slate-100 px-2 py-1 text-right font-semibold dark:border-slate-600 dark:bg-slate-700">
-              {children}
+              {renderWithCitations(children, sources)}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border border-slate-300 px-2 py-1 dark:border-slate-600">{children}</td>
+            <td className="border border-slate-300 px-2 py-1 dark:border-slate-600">
+              {renderWithCitations(children, sources)}
+            </td>
           ),
           hr: () => <hr className="my-3 border-slate-300 dark:border-slate-600" />,
         }}

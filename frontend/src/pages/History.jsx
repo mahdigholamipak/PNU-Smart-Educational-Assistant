@@ -4,6 +4,19 @@ import api from "../api/axios.client";
 import Spinner from "../components/Spinner";
 import MarkdownRenderer from "../components/MarkdownRenderer";
 
+/** Deduplicate a sources array by filename (keep first occurrence). */
+function dedupeSources(sources) {
+  if (!Array.isArray(sources)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const src of sources) {
+    if (!src || seen.has(src.filename)) continue;
+    seen.add(src.filename);
+    result.push(src);
+  }
+  return result;
+}
+
 export default function History() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState([]);
@@ -157,13 +170,13 @@ export default function History() {
                         {msg.role === "user" ? (
                           <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
                         ) : (
-                          <MarkdownRenderer content={msg.content} />
+                          <MarkdownRenderer content={msg.content} sources={msg.sources} />
                         )}
                         {msg.sources && msg.sources.length > 0 && (
                           <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-600">
                             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">منابع:</p>
                             <ul className="mt-1 space-y-1">
-                              {msg.sources.map((src, i) => (
+                              {dedupeSources(msg.sources).map((src, i) => (
                                 <li key={i} className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                                   <span>📄</span>
                                   <span className="truncate">{src.filename}</span>

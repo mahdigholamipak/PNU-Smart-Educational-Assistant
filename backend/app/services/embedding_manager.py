@@ -17,6 +17,7 @@ Why this is bulletproof for multi-key rate-limit resilience:
   the whole document).
 """
 
+import logging
 import threading
 import time
 from typing import Any
@@ -25,7 +26,9 @@ import requests
 
 from app.config import settings
 from app.database import SessionLocal
-from app.models import ApiUsage
+from app.models import ApiUsageStats
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimitError(RuntimeError):
@@ -103,33 +106,56 @@ class SmartKeyManager:
         return f"{api_key[:4]}****{api_key[-4:]}"
 
     def record_usage(self, api_key: str, model: str, tokens: int) -> None:
-        """Increment request/token counters for ``api_key`` in the DB.
+        """Increment request/token counters for ``api_key`` and ``model`` in the DB.
 
-        Uses its own DB session because the manager runs outside the request
-        context. Failures here are swallowed so usage tracking never breaks the
+        Rows are uniquely identified by ``(api_key_masked, model)`` so one key
+        used by multiple models (e.g. chat ``gemini-flash`` + embedding
+        ``gemini-embedding``) tracks each model's usage separately instead of
+        overwriting the other.
+
+        Uses its own session/DB because the manager runs outside the request
+        context. Failures here are swallowed so the statistics never break the
         actual API call.
         """
         if not api_key:
             return
+        from app.services.llm_service import normalize_model_name
+
         masked = self._mask_key(api_key)
+        model = normalize_model_name(model) or "unknown"
         tokens = max(0, int(tokens or 0))
         db = SessionLocal()
         try:
-            row = db.query(ApiUsage).filter(ApiUsage.api_key_masked == masked).first()
+            row = (
+                db.query(ApiUsageStats)
+                .filter(
+                    ApiUsageStats.api_key_masked == masked,
+                    ApiUsageStats.model == model,
+                )
+                .first()
+            )
             if row:
                 row.total_requests += 1
                 row.total_tokens_used += tokens
             else:
-                row = ApiUsage(
+                row = ApiUsageStats(
                     api_key_masked=masked,
-                    model=model or "unknown",
+                    model=model,
                     total_requests=1,
                     total_tokens_used=tokens,
                 )
                 db.add(row)
             db.commit()
-        except Exception:
+        except Exception as exc:
             db.rollback()
+            # Log the failure so a silent DB write error doesn't look like the
+            # usage counters "reset to zero" on the monitoring dashboard.
+            logger.error(
+                "Failed to record API usage for key=%s model=%s: %s",
+                masked,
+                model,
+                exc,
+            )
         finally:
             db.close()
 
@@ -137,6 +163,18 @@ class SmartKeyManager:
 # Module-level singleton so rotation state survives across all batches of a
 # document and across successive uploads within the same process.
 key_manager = SmartKeyManager()
+
+
+def _estimate_tokens(texts: list[str]) -> int:
+    """Estimate token count for a batch when the API omits usage metadata.
+
+    Rough heuristic: ~4 characters per token (works reasonably for Persian/
+    Arabic and English). Used only as a fallback so the monitoring dashboard
+    still reflects the heavy token cost of document processing even if the
+    Gemini ``batchEmbedContents`` response does not include ``usageMetadata``.
+    """
+    total_chars = sum(len(t) for t in texts)
+    return max(1, total_chars // 4)
 
 
 def _embed_batch_raw(texts: list[str], model: str, api_key: str) -> list[list[float]]:
@@ -192,8 +230,13 @@ def _embed_batch_raw(texts: list[str], model: str, api_key: str) -> list[list[fl
         )
 
     # Record token usage for this key (best-effort; never breaks the call).
+    # Prefer the API's usage metadata; fall back to a character-based estimate
+    # so the monitoring dashboard still reflects the heavy token cost of
+    # document processing even if the response omits usageMetadata.
     usage = data.get("usageMetadata") or {}
     tokens = usage.get("totalTokenCount") or 0
+    if not tokens:
+        tokens = _estimate_tokens(texts)
     key_manager.record_usage(api_key, model, tokens)
 
     return embeddings
@@ -207,6 +250,8 @@ def embed_batch_managed(
 
     Retries the *same* batch on 429 by marking the key as burned and rotating
     to the next available key (with exponential backoff when all keys cool).
+    Also retries transient network errors (SSL/connection/timeout) with
+    exponential backoff so unstable networks don't abort heavy batch jobs.
     """
     if not key_manager.keys:
         raise RuntimeError("هیچ کلید API تنظیم نشده است. ابتدا کلید را در تنظیمات ذخیره کنید.")
@@ -228,10 +273,19 @@ def embed_batch_managed(
             key_manager.report_429(api_key)
             attempt += 1
             continue
+        except requests.exceptions.RequestException as exc:
+            # Transient network failure (SSLError, ConnectionError, Timeout,
+            # etc.). Sleep with exponential backoff and retry the same batch.
+            delay = min(settings.embedding_backoff_base * (2 ** attempt), 60.0)
+            time.sleep(delay)
+            attempt += 1
+            continue
 
     raise RuntimeError(
-        "محدودیت نرخ API (429) پس از چند بار تلاش برطرف نشد. "
-        "لطفاً کلیدهای API بیشتری اضافه کنید یا بعداً دوباره تلاش کنید."
+        "پس از چند بار تلاش، ارتباط با سرویس بردارسازی برقرار نشد "
+        "(محدودیت نرخ API یا خطای شبکه). "
+        "لطفاً کلیدهای API بیشتری اضافه کنید، اتصال اینترنت را بررسی کنید "
+        "یا بعداً دوباره تلاش کنید."
     )
 
 

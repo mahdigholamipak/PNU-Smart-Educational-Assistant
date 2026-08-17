@@ -2,6 +2,84 @@ import { useEffect, useState } from "react";
 import api from "../../api/axios.client";
 import Spinner from "../../components/Spinner";
 
+/**
+ * Renders one API key's usage as a parent row (masked key + combined totals)
+ * followed by nested per-model sub-rows, similar to Google AI Studio's
+ * per-key/per-model monitoring breakdown.
+ */
+function UsageGroup({ group }) {
+  const [expanded, setExpanded] = useState(true);
+  const models = group.models || [];
+
+  return (
+    <>
+      <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-700/40">
+        <td className="px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+            aria-expanded={expanded}
+          >
+            <svg
+              className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+            <span className="font-mono text-xs text-slate-600 dark:text-slate-300" dir="ltr">
+              {group.api_key_masked}
+            </span>
+          </button>
+        </td>
+        <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+          {models.length} مدل
+        </td>
+        <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">
+          {Number(group.total_requests || 0).toLocaleString("fa-IR")}
+        </td>
+        <td className="px-3 py-2 font-semibold text-slate-800 dark:text-slate-100">
+          {Number(group.total_tokens_used || 0).toLocaleString("fa-IR")}
+        </td>
+        <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+          {group.updated_at ? new Date(group.updated_at).toLocaleString("fa-IR") : "—"}
+        </td>
+      </tr>
+      {expanded &&
+        (models.length === 0 ? (
+          <tr className="border-b border-slate-100 dark:border-slate-700">
+            <td className="px-3 py-2" />
+            <td className="px-3 py-2 pr-10 text-xs italic text-slate-400 dark:text-slate-500">
+              هنوز مصرفی برای این کلید ثبت نشده است.
+            </td>
+            <td className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">۰</td>
+            <td className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">۰</td>
+            <td />
+          </tr>
+        ) : (
+          models.map((m, j) => (
+            <tr key={j} className="border-b border-slate-100 dark:border-slate-700">
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2 pr-10 text-slate-700 dark:text-slate-200">{m.model}</td>
+              <td className="px-3 py-2 text-slate-700 dark:text-slate-200">
+                {Number(m.total_requests || 0).toLocaleString("fa-IR")}
+              </td>
+              <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">
+                {Number(m.total_tokens_used || 0).toLocaleString("fa-IR")}
+              </td>
+              <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+                {m.updated_at ? new Date(m.updated_at).toLocaleString("fa-IR") : "—"}
+              </td>
+            </tr>
+          ))
+        ))}
+    </>
+  );
+}
+
 export default function AdminSettings() {
   const [settings, setSettings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +124,7 @@ export default function AdminSettings() {
     setUsageLoading(true);
     api
       .get("/admin/api-usage")
-      .then((res) => setUsage(res.data || []))
+      .then((res) => setUsage(Array.isArray(res.data) ? res.data : []))
       .catch(() => setUsage([]))
       .finally(() => setUsageLoading(false));
   };
@@ -299,22 +377,8 @@ export default function AdminSettings() {
                 </tr>
               </thead>
               <tbody>
-                {usage.map((u, i) => (
-                  <tr key={i} className="border-b border-slate-100 dark:border-slate-700">
-                    <td className="px-3 py-2 font-mono text-xs text-slate-600 dark:text-slate-300" dir="ltr">
-                      {u.api_key_masked}
-                    </td>
-                    <td className="px-3 py-2 text-slate-700 dark:text-slate-200">{u.model}</td>
-                    <td className="px-3 py-2 text-slate-700 dark:text-slate-200">
-                      {Number(u.total_requests || 0).toLocaleString("fa-IR")}
-                    </td>
-                    <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">
-                      {Number(u.total_tokens_used || 0).toLocaleString("fa-IR")}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
-                      {u.updated_at ? new Date(u.updated_at).toLocaleString("fa-IR") : "—"}
-                    </td>
-                  </tr>
+                {usage.map((group, i) => (
+                  <UsageGroup key={i} group={group} />
                 ))}
               </tbody>
             </table>

@@ -14,6 +14,7 @@ from app.schemas.chat import (
     ChatSessionResponse,
     SendMessageRequest,
 )
+from app.services.conversation_memory import get_recent_messages
 from app.services.log_service import log_event
 from app.services.rag_service import (
     KIND_AI_CONNECTION,
@@ -164,6 +165,10 @@ def send_message(
     target_id = payload.session_id if payload.session_id is not None else session_id
     session = _get_owned_session(target_id, current_user.id, db)
 
+    # Fetch recent conversation history BEFORE persisting the current message,
+    # so the memory window excludes the new turn itself.
+    history = get_recent_messages(db, session.id, max_turns=6)
+
     # Persist the user message
     user_message = ChatMessage(session_id=session.id, role="user", content=payload.content)
     db.add(user_message)
@@ -185,6 +190,7 @@ def send_message(
             question=payload.content,
             course_id=session.course_id,
             db=db,
+            history=history,
         )
     except Exception:
         log_event(

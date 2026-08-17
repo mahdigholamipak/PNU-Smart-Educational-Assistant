@@ -3,13 +3,13 @@ import uuid
 from pathlib import Path
 
 import requests
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.core.deps import require_admin
-from app.database import get_db
-from app.models import ApiUsage, Course, CourseRequest, Resource, Setting, SystemLog, User
+from app.database import SessionLocal, get_db
+from app.models import ApiUsageStats, ChatSession, Course, CourseRequest, Resource, Setting, SystemLog, User
 from app.schemas.course import CourseCreateRequest, CourseResponse, CourseUpdateRequest
 from app.schemas.request import CourseRequestAdminUpdate, CourseRequestResponse
 from app.schemas.resource import ResourceResponse, SettingResponse, SettingUpdateRequest
@@ -211,9 +211,92 @@ def delete_resource(resource_id: int, db: Session = Depends(get_db)):
     )
 
 
+def _reprocess_resource_background(resource_id: int) -> None:
+    """Re-parse and re-embed a resource's document in the background.
+
+    Runs with its own DB session so the FastAPI request can return immediately
+    with status "processing"; polling clients observe the final "ready"/"failed"
+    transition once this completes.
+    """
+    db = SessionLocal()
+    try:
+        resource = db.query(Resource).filter(Resource.id == resource_id).first()
+        if not resource:
+            return
+        course_id = resource.course_id
+        filename = resource.filename
+        stored_path = resource.stored_path
+
+        try:
+            # Remove old chunks first (best-effort; the vector store cleanup
+            # must not abort the reprocess if it fails).
+            try:
+                delete_resource_chunks(course_id, resource_id)
+            except Exception as exc:
+                log_event(
+                    db, "error", "vector_store",
+                    f"خطا در حذف chunkهای قبلی برای: {filename}",
+                    str(exc),
+                    resource_id,
+                )
+
+            chunks = process_pdf(stored_path)
+            if not chunks:
+                resource.status = "failed"
+                resource.error_message = "متنی از فایل PDF استخراج نشد."
+                log_event(
+                    db, "error", "reprocess",
+                    f"پردازش مجدد ناموفق بود (بدون متن): {filename}",
+                    resource_id=resource_id,
+                )
+                db.commit()
+                return
+
+            chunk_count = add_document_chunks(
+                course_id=course_id,
+                resource_id=resource_id,
+                filename=filename,
+                chunks=chunks,
+            )
+            resource.status = "ready"
+            resource.chunk_count = chunk_count
+            resource.error_message = None
+            db.commit()
+            log_event(
+                db, "info", "reprocess",
+                f"پردازش مجدد با موفقیت انجام شد: {filename}",
+                f"{chunk_count} chunk(s) re-embedded for resource {resource_id}",
+                resource_id,
+            )
+        except Exception as exc:
+            resource.status = "failed"
+            resource.error_message = str(exc)[:500]
+            log_event(
+                db, "error", "reprocess",
+                f"پردازش مجدد ناموفق بود: {filename}",
+                str(exc),
+                resource_id,
+            )
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 @router.post("/resources/{resource_id}/reprocess", response_model=ResourceResponse)
-def reprocess_resource(resource_id: int, db: Session = Depends(get_db)):
-    """Re-parse and re-embed a resource's document."""
+def reprocess_resource(
+    resource_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Trigger an asynchronous re-parse and re-embed of a resource's document.
+
+    The endpoint immediately flips the resource to "processing" and schedules
+    the heavy work (delete old chunks, extract text, re-embed) in the
+    background. The frontend polls ``GET /admin/resources`` every few seconds
+    and observes the transition back to "ready"/"failed".
+    """
     resource = db.query(Resource).filter(Resource.id == resource_id).first()
     if not resource:
         raise HTTPException(status_code=404, detail="منبع یافت نشد")
@@ -221,49 +304,9 @@ def reprocess_resource(resource_id: int, db: Session = Depends(get_db)):
     resource.status = "processing"
     resource.error_message = None
     db.commit()
+    db.refresh(resource)
 
-    try:
-        # Remove old chunks first
-        try:
-            delete_resource_chunks(resource.course_id, resource.id)
-        except Exception as exc:
-            log_event(
-                db, "error", "vector_store",
-                f"خطا در حذف chunkهای قبلی برای: {resource.filename}",
-                str(exc),
-                resource.id,
-            )
-
-        chunks = process_pdf(resource.stored_path)
-        if not chunks:
-            resource.status = "failed"
-            resource.error_message = "متنی از فایل PDF استخراج نشد."
-            log_event(db, "error", "reprocess", f"پردازش مجدد ناموفق بود (بدون متن): {resource.filename}", resource_id=resource.id)
-            db.commit()
-            db.refresh(resource)
-            return _serialize_resource(resource)
-
-        chunk_count = add_document_chunks(
-            course_id=resource.course_id,
-            resource_id=resource.id,
-            filename=resource.filename,
-            chunks=chunks,
-        )
-        resource.status = "ready"
-        resource.chunk_count = chunk_count
-        db.commit()
-        db.refresh(resource)
-    except Exception as exc:
-        resource.status = "failed"
-        resource.error_message = str(exc)[:500]
-        log_event(
-            db, "error", "reprocess",
-            f"پردازش مجدد ناموفق بود: {resource.filename}",
-            str(exc),
-            resource.id,
-        )
-        db.commit()
-        db.refresh(resource)
+    background_tasks.add_task(_reprocess_resource_background, resource_id)
 
     return _serialize_resource(resource)
 
@@ -339,6 +382,13 @@ def delete_course(course_id: int, db: Session = Depends(get_db)):
     except Exception:
         pass
 
+    # Defensive: explicitly delete chat sessions (and their messages via
+    # cascade) before the course itself, so the NOT NULL FK constraint on
+    # chat_sessions.course_id is never violated.
+    db.query(ChatSession).filter(ChatSession.course_id == course_id).delete(
+        synchronize_session=False
+    )
+
     db.delete(course)
     db.commit()
 
@@ -405,22 +455,79 @@ def update_setting(key: str, payload: SettingUpdateRequest, db: Session = Depend
 
 @router.get("/api-usage")
 def list_api_usage(db: Session = Depends(get_db)):
-    """List aggregated API usage per key (masked), newest/most-used first."""
+    """List aggregated API usage grouped by key, with a per-model breakdown.
+
+    Behaves like a LEFT JOIN: every configured API key is ALWAYS returned —
+    even keys with zero recorded usage — with ``total_requests``,
+    ``total_tokens_used`` and ``models`` defaulting to ``0``/``[]`` when no
+    ``api_usage_stats`` rows exist yet. This prevents the monitoring dashboard
+    from rendering blank when new or unused keys are configured.
+
+    Rows are uniquely keyed by ``(api_key_masked, model)``; the response groups
+    them by API key and includes the exact per-model breakdown (e.g.
+    ``gemini-flash`` chat and ``gemini-embedding`` for a shared Smart Key)
+    under each key.
+    """
+    def _mask_key(api_key: str) -> str:
+        if len(api_key) <= 8:
+            return "****"
+        return f"{api_key[:4]}****{api_key[-4:]}"
+
+    # 1. Pre-initialize a group for EVERY configured API key (LEFT JOIN base).
+    #    Keys with no stats yet default to 0 requests / 0 tokens / [] models.
+    api_keys = resolve_api_keys()
+    grouped: dict[str, dict] = {}
+    for key in api_keys:
+        masked = _mask_key(key)
+        grouped[masked] = {
+            "api_key_masked": masked,
+            "total_requests": 0,
+            "total_tokens_used": 0,
+            "updated_at": None,
+            "models": [],
+        }
+
+    # 2. Merge in the cumulative stats rows (equivalent to LEFT JOIN ON masked key).
     rows = (
-        db.query(ApiUsage)
-        .order_by(ApiUsage.total_tokens_used.desc(), ApiUsage.updated_at.desc())
+        db.query(ApiUsageStats)
+        .order_by(ApiUsageStats.total_tokens_used.desc(), ApiUsageStats.updated_at.desc())
         .all()
     )
-    return [
-        {
-            "api_key_masked": row.api_key_masked,
+    for row in rows:
+        group = grouped.setdefault(
+            row.api_key_masked,
+            {
+                "api_key_masked": row.api_key_masked,
+                "total_requests": 0,
+                "total_tokens_used": 0,
+                "updated_at": None,
+                "models": [],
+            },
+        )
+        group["total_requests"] += row.total_requests
+        group["total_tokens_used"] += row.total_tokens_used
+        model_entry = {
             "model": row.model,
             "total_requests": row.total_requests,
             "total_tokens_used": row.total_tokens_used,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
-        for row in rows
-    ]
+        group["models"].append(model_entry)
+        # Track the most recent update as a raw datetime internally; only
+        # stringify at the end so we never compare datetime vs str.
+        latest = group.get("_latest_updated")
+        if row.updated_at and (latest is None or row.updated_at > latest):
+            group["_latest_updated"] = row.updated_at
+
+    for group in grouped.values():
+        latest = group.pop("_latest_updated", None)
+        group["updated_at"] = latest.isoformat() if latest else None
+
+    return sorted(
+        grouped.values(),
+        key=lambda g: (g["total_tokens_used"], g["total_requests"]),
+        reverse=True,
+    )
 
 
 # ---------- System Logs (Task 3) ----------

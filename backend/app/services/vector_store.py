@@ -32,9 +32,15 @@ def add_document_chunks(
     course_id: int,
     resource_id: int,
     filename: str,
-    chunks: list[str],
+    chunks: list[str] | list[dict],
 ) -> int:
     """Index document chunks into the course's ChromaDB collection.
+
+    ``chunks`` may be either a list of plain strings (legacy) or a list of
+    ``{"content": str, "page": int}`` dicts produced by the page-aware
+    :func:`app.services.document_service.process_pdf`. When page info is
+    present it is stored in ChromaDB metadata so citations can show the
+    source page.
 
     Fully decoupled embedding pipeline:
       1. All chunks are embedded manually by :func:`embed_batches_managed`
@@ -49,27 +55,39 @@ def add_document_chunks(
     if not chunks:
         return 0
 
+    # Normalize input: accept either plain strings or {content, page} dicts.
+    contents: list[str] = []
+    pages: list[int | None] = []
+    for chunk in chunks:
+        if isinstance(chunk, dict):
+            contents.append(chunk.get("content", ""))
+            pages.append(chunk.get("page"))
+        else:
+            contents.append(chunk)
+            pages.append(None)
+
     # Manual, decoupled embedding of ALL chunks via the smart key manager.
     keys = resolve_api_keys()
     key_manager.configure(keys)
     all_embeddings = embed_batches_managed(
-        chunks=chunks,
+        chunks=contents,
         model=resolve_embedding_model(),
     )
 
-    ids = [f"res_{resource_id}_chunk_{i}" for i in range(len(chunks))]
+    ids = [f"res_{resource_id}_chunk_{i}" for i in range(len(contents))]
     metadatas = [
         {
             "resource_id": resource_id,
             "filename": filename,
             "chunk_index": i,
+            "page": pages[i],
         }
-        for i in range(len(chunks))
+        for i in range(len(contents))
     ]
 
     collection.upsert(
         ids=ids,
-        documents=chunks,
+        documents=contents,
         embeddings=all_embeddings,
         metadatas=metadatas,
     )
@@ -173,6 +191,7 @@ def search_course_documents(
                 "filename": metadata.get("filename", "ناشناخته"),
                 "resource_id": metadata.get("resource_id", 0),
                 "chunk_index": metadata.get("chunk_index", 0),
+                "page": metadata.get("page"),
                 "score": round(1 - float(distance), 4) if distance is not None else None,
             }
         )

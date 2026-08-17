@@ -19,4 +19,9 @@ class Course(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     resources = relationship("Resource", back_populates="course", cascade="all, delete-orphan")
-    chat_sessions = relationship("ChatSession", back_populates="course")
+    chat_sessions = relationship(
+        "ChatSession",
+        back_populates="course",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

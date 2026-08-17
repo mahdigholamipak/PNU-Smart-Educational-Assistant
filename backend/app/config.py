@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_embedding_model: str = "models/text-embedding-004"
     gemini_chat_model: str = "gemini-1.5-flash"
+    gemini_rewrite_model: str = "gemini-1.5-flash"
 
     # Embedding pipeline tuning (rate-limit resiliency)
     # Number of chunks sent per embedding API call (batchEmbedContents).

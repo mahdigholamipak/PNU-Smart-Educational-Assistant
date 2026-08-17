@@ -38,10 +38,14 @@ def _generate_content_raw(
     # Build the Gemini contents array from (role, content) tuples.
     contents = []
     for role, content in messages:
-        if role == "system":
+        if role in ("system", "human", "user"):
             # Gemini has no system role; prepend as a user instruction.
             contents.append({"role": "user", "parts": [{"text": content}]})
+        elif role in ("assistant", "ai", "model"):
+            # Gemini's model role represents the assistant's prior responses.
+            contents.append({"role": "model", "parts": [{"text": content}]})
         else:
+            # Unknown role — safest to treat as user.
             contents.append({"role": "user", "parts": [{"text": content}]})
 
     url = (

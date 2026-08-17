@@ -1,45 +1,33 @@
 from pathlib import Path
 
-import pdfplumber
-from pypdf import PdfReader
+import fitz  # PyMuPDF
 
 
-def extract_text_from_pdf(file_path: str | Path) -> str:
-    """Extract raw text from a PDF file.
+def extract_pages_from_pdf(file_path: str | Path) -> list[dict]:
+    """Extract per-page text from a PDF file using PyMuPDF (fitz).
 
-    Uses pdfplumber first (better for Persian/RTL PDFs), then falls back to
-    pypdf. Returns whichever extractor produced the longer, non-empty text.
+    PyMuPDF handles RTL (Persian/Arabic) text, complex layouts, and Unicode
+    shaping natively, so the extracted text reads correctly without any manual
+    reshaper/bidi post-processing. Returns a list of ``{"page": int, "text": str}``
+    dicts for pages that contain extractable text. Page numbers are 1-based.
     """
     file_path_str = str(file_path)
+    pages: list[dict] = []
 
-    # 1. Try pdfplumber (best for Persian/Arabic RTL)
     try:
-        with pdfplumber.open(file_path_str) as pdf:
-            pages = []
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                if text.strip():
-                    pages.append(text)
-            pdfplumber_text = "\n\n".join(pages)
+        doc = fitz.open(file_path_str)
     except Exception:
-        pdfplumber_text = ""
+        return pages
 
-    # 2. Fallback: pypdf
     try:
-        reader = PdfReader(file_path_str)
-        pages = []
-        for page in reader.pages:
-            text = page.extract_text() or ""
+        for idx, page in enumerate(doc.pages(), start=1):
+            text = page.get_text("text") or ""
             if text.strip():
-                pages.append(text)
-        pypdf_text = "\n\n".join(pages)
-    except Exception:
-        pypdf_text = ""
+                pages.append({"page": idx, "text": text})
+    finally:
+        doc.close()
 
-    # Pick the longer, more complete extraction
-    if len(pdfplumber_text.strip()) >= len(pypdf_text.strip()):
-        return pdfplumber_text
-    return pypdf_text
+    return pages
 
 
 def chunk_text(text: str, chunk_size: int = 800, overlap: int = 120) -> list[str]:
@@ -76,7 +64,16 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 120) -> list[str
     return chunks
 
 
-def process_pdf(file_path: str | Path) -> list[str]:
-    """Extract and chunk a PDF file into RAG-ready document chunks."""
-    text = extract_text_from_pdf(file_path)
-    return chunk_text(text)
+def process_pdf(file_path: str | Path) -> list[dict]:
+    """Extract and chunk a PDF file into RAG-ready document chunks.
+
+    Returns a list of ``{"content": str, "page": int}`` dicts. Chunking is
+    performed within each page so every chunk records the page it came from,
+    enabling accurate page-level citations in the UI.
+    """
+    pages = extract_pages_from_pdf(file_path)
+    chunks: list[dict] = []
+    for page in pages:
+        for piece in chunk_text(page["text"]):
+            chunks.append({"content": piece, "page": page["page"]})
+    return chunks

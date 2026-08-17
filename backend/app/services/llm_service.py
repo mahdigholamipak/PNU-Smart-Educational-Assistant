@@ -70,6 +70,11 @@ def resolve_chat_model() -> str:
     return normalize_model_name(_get_setting_value("gemini_chat_model") or settings.gemini_chat_model)
 
 
+def resolve_rewrite_model() -> str:
+    """Resolve the lightweight model used for query rewriting (settings table -> config default)."""
+    return normalize_model_name(_get_setting_value("gemini_rewrite_model") or settings.gemini_rewrite_model)
+
+
 def resolve_embedding_model() -> str:
     """Resolve the embedding model: settings table -> config default (normalized)."""
     return normalize_model_name(_get_setting_value("gemini_embedding_model") or settings.gemini_embedding_model)
