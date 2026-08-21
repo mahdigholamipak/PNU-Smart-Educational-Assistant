@@ -19,6 +19,7 @@ import requests
 
 from app.config import settings
 from app.services.embedding_manager import RateLimitError, key_manager
+from app.services.llm_service import resolve_api_keys, resolve_rewrite_model
 
 
 def _extract_inline_data(image_data: str) -> tuple[str, str]:
@@ -185,3 +186,42 @@ def generate_chat_response(
         "محدودیت نرخ API (429) پس از چند بار تلاش برطرف نشد. "
         "لطفاً کلیدهای API بیشتری اضافه کنید یا بعداً دوباره تلاش کنید."
     )
+
+
+# System prompt for generating a short, meaningful chat title from the first
+# user message (or OCR-extracted image text). Kept lightweight so the title
+# is concise and never leaks internal instructions.
+TITLE_SYSTEM_PROMPT = """You are a helpful assistant that names chat conversations.
+Given the user's first message (which may be OCR text extracted from an image),
+produce a SHORT, meaningful Persian title (max 30 characters) that summarizes
+the topic. Output ONLY the title — no quotes, prefixes, or explanations.
+If the input is empty or unreadable, output "گفتگو".
+"""
+
+
+def generate_chat_title(text: str) -> str:
+    """Generate a short, meaningful chat title from the first user message.
+
+    Uses a lightweight Gemini model via the shared SmartKeyManager. Any failure
+    (no keys, rate limit, network) falls back to a truncated version of the
+    input text so chat creation NEVER breaks.
+    """
+    text = (text or "").strip()
+    if not text:
+        return "گفتگو"
+
+    # CRITICAL: ensure the smart key pool is configured before the LLM call.
+    key_manager.configure(resolve_api_keys())
+
+    try:
+        messages = [("user", f"{TITLE_SYSTEM_PROMPT}\n\nمتن کاربر:\n{text}")]
+        title = generate_chat_response(messages, resolve_rewrite_model())
+        title = title.strip().strip('"').strip("«»").strip()
+        if title and len(title) <= 60:
+            return title
+    except Exception:
+        # Any failure → fall through to the deterministic fallback.
+        pass
+
+    # Deterministic fallback: truncate the input to a reasonable title length.
+    return text[:30]

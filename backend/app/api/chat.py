@@ -14,10 +14,12 @@ from app.schemas.chat import (
     ChatSessionResponse,
     SendMessageRequest,
 )
+from app.services.chat_manager import generate_chat_title
 from app.services.conversation_memory import get_recent_messages
 from app.services.log_service import log_event
 from app.services.rag_service import (
     KIND_AI_CONNECTION,
+    extract_image_text,
     generate_rag_answer,
 )
 
@@ -183,10 +185,26 @@ def send_message(
     )
     db.add(user_message)
 
+    # Pre-computed OCR text for image-only prompts. Initialized empty; set only
+    # when we actually extract the image's text (used for both the title and
+    # the RAG pipeline to avoid a duplicate OCR call).
+    ocr_text = ""
+
     # Dynamic session naming: use the first prompt as the title if the session
     # still carries the default course title (i.e., no custom title yet).
+    # For image-only prompts (no text), WAIT for OCR to complete and pass the
+    # extracted text to the LLM title generator so the chat gets a meaningful
+    # title based on the image's actual content instead of a generic string.
     if session.title == (session.course.title if session.course else None):
-        session.title = display_content[:30]
+        if payload.content.strip():
+            session.title = display_content[:30]
+        elif payload.image_data:
+            # Extract the image's text ONCE — reused for both the title and the
+            # RAG pipeline (avoids a duplicate OCR call).
+            ocr_text = extract_image_text(payload.image_data)
+            session.title = generate_chat_title(ocr_text)
+        else:
+            session.title = display_content[:30]
 
     # Bump "last edited" timestamp so the session rises to the top of history.
     session.updated_at = datetime.utcnow()
@@ -195,6 +213,8 @@ def send_message(
     # Generate RAG answer scoped to the session's course.
     # The optional image (Base64 data URL) is passed ONLY to the LLM for
     # multimodal analysis — the ChromaDB vector search stays text-only.
+    # For image-only prompts, the OCR text extracted above is passed along so
+    # the pipeline skips its internal (duplicate) OCR call.
     # Wrap the entire generation block so ANY exception is logged with a full
     # stack trace and surfaced to the user — never swallowed silently.
     try:
@@ -204,6 +224,7 @@ def send_message(
             db=db,
             history=history,
             image_data=payload.image_data,
+            image_text=ocr_text if payload.image_data and not payload.content.strip() else "",
         )
     except Exception:
         log_event(
