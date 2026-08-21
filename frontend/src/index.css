@@ -66,6 +66,8 @@
 /* KaTeX sizing to fit chat bubbles */
 .markdown-body .katex {
   font-size: 1.05em;
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 .markdown-body .katex-display {
@@ -73,4 +75,6 @@
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.25rem 0;
+  direction: ltr;
+  unicode-bidi: isolate;
 }

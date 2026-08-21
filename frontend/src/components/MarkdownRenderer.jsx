@@ -122,7 +122,8 @@ function CitationBadge({ label, source }) {
  * React element children so citations inside <li>, <td>, <strong>, <em>,
  * <blockquote>, etc. are all converted — not just plain <p> paragraphs.
  *
- * Code blocks (<code>/<pre>) are skipped so citations inside code stay literal.
+ * Code blocks (<code>/<pre>) and math (KaTeX) are skipped so citations inside
+ * those stay literal and cannot break the layout.
  */
 function renderWithCitations(children, sources) {
   return Children.map(children, (child) => {
@@ -158,10 +159,15 @@ function renderWithCitations(children, sources) {
       });
     }
 
-    // React element → recurse into its children (skip code/pre).
+    // React element → recurse into its children (skip code/pre/math).
     if (isValidElement(child)) {
-      if (child.type === CodeComponent || child.type === PreComponent) {
-        return child; // citations in code stay literal
+      if (
+        child.type === CodeComponent ||
+        child.type === PreComponent ||
+        child.type === MathInline ||
+        child.type === MathBlock
+      ) {
+        return child; // citations in code/math stay literal
       }
       if (child.props?.children) {
         return cloneElement(child, {
@@ -197,6 +203,46 @@ function PreComponent({ children }) {
   return <>{children}</>;
 }
 
+/**
+ * Inline math (KaTeX) — `$...$`. Citations inside math formulas must stay
+ * literal so the KaTeX renderer isn't corrupted by injected badge elements.
+ *
+ * CRITICAL: The global CSS sets `html { direction: rtl; }` for Persian text.
+ * Math like `$w^R$` or `$((w^R)^R)$` must be forced to LTR with full bidi
+ * isolation so parentheses and exponents render in the correct logical order.
+ * The inline style (direction + unicodeBidi isolate + inline-block) is the
+ * authoritative guarantee; the utility classes are a Tailwind fallback.
+ */
+function MathInline({ children }) {
+  return (
+    <span
+      dir="ltr"
+      className="math-inline inline-block text-left"
+      style={{ direction: "ltr", unicodeBidi: "isolate", display: "inline-block" }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Block math (KaTeX) — `$$...$$` display equations. Same LTR + bidi isolation
+ * as inline math, but rendered at block level so display equations keep their
+ * own line and don't break the paragraph flow. overflow-x keeps wide equations
+ * scrollable inside the chat bubble on small screens.
+ */
+function MathBlock({ children }) {
+  return (
+    <div
+      dir="ltr"
+      className="math-block text-left"
+      style={{ direction: "ltr", unicodeBidi: "isolate", overflowX: "auto" }}
+    >
+      {children}
+    </div>
+  );
+}
+
 export default function MarkdownRenderer({ content, sources }) {
   return (
     <div className="markdown-body text-sm leading-relaxed">
@@ -229,6 +275,8 @@ export default function MarkdownRenderer({ content, sources }) {
           ),
           code: CodeComponent,
           pre: PreComponent,
+          math: MathBlock,
+          inlineMath: MathInline,
           blockquote: ({ children }) => (
             <blockquote className="mb-2 border-r-4 border-slate-300 pr-3 text-slate-600 last:mb-0 dark:border-slate-600 dark:text-slate-300">
               {renderWithCitations(children, sources)}

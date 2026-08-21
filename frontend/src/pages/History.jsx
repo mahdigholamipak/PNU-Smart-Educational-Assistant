@@ -168,7 +168,18 @@ export default function History() {
                         }`}
                       >
                         {msg.role === "user" ? (
-                          <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                          <>
+                            {msg.image && (
+                              <img
+                                src={msg.image}
+                                alt="Uploaded attachment"
+                                className="max-w-xs max-h-48 rounded-lg border my-2 object-cover"
+                              />
+                            )}
+                            {(!msg.image || !["📷 تصویر", "🖼️ تصویر"].includes(msg.content)) && (
+                              <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                            )}
+                          </>
                         ) : (
                           <MarkdownRenderer content={msg.content} sources={msg.sources} />
                         )}

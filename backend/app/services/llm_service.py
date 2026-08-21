@@ -75,6 +75,11 @@ def resolve_rewrite_model() -> str:
     return normalize_model_name(_get_setting_value("gemini_rewrite_model") or settings.gemini_rewrite_model)
 
 
+def resolve_ocr_model() -> str:
+    """Resolve the lightweight model used for image OCR (settings table -> config default)."""
+    return normalize_model_name(_get_setting_value("gemini_ocr_model") or settings.gemini_ocr_model)
+
+
 def resolve_embedding_model() -> str:
     """Resolve the embedding model: settings table -> config default (normalized)."""
     return normalize_model_name(_get_setting_value("gemini_embedding_model") or settings.gemini_embedding_model)

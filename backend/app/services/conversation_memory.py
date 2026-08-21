@@ -14,24 +14,26 @@ from sqlalchemy.orm import Session
 
 from app.models import ChatMessage
 from app.services.chat_manager import generate_chat_response
-from app.services.llm_service import resolve_rewrite_model
+from app.services.embedding_manager import key_manager
+from app.services.llm_service import resolve_api_keys, resolve_rewrite_model
 
 # Number of recent messages (turns) to feed into generation + rewriting.
 HISTORY_MAX_TURNS = 6
 # Hard cap on how much of a single history message we send (token savings).
 _MAX_TURN_CHARS = 400
 
-REWRITE_SYSTEM_PROMPT = """تو یک دستیار بازنویسی پرس‌وجو هستی. وظیفه تو این است که پرس‌وجوی فعلی کاربر را
-با توجه به گفتگوی قبلی، به یک پرس‌وجوی مستقل و کامل برای جستجو در فهرست اسناد درسی تبدیل کنی.
+REWRITE_SYSTEM_PROMPT = """Given the chat history, rewrite the user's latest message into a standalone,
+context-independent search query. Output ONLY the rewritten query.
 
-قوانین:
-1. فقط متن پرس‌وجوی بازنویسی‌شده را خروجی بده — هیچ توضیح، پیشوند، نقل‌قول یا نشانه‌گذاری اضافه نکن.
-2. زبان متن را حفظ کن (فارسی/انگلیسی).
-3. اگر پرس‌وجوی فعلی از قبل مستقل و کامل است، آن را عیناً تکرار کن.
-4. اگر پرس‌وجوی فعلی کوتاه یا مبهم است (مثلاً «بیشتر توضیح بده»، «منظورت چیست؟»، «چرا؟»)،
-   موضوع اصلی گفتگو را از پیام‌های قبلی استخراج کن و آن را در پرس‌وجو بگنجان.
-   مثال: گفتگو درباره «ماشین تورینگ» -> ورودی «بیشتر توضیح بده» -> «بیشتر توضیح بده درباره ماشین تورینگ»
-5. هرگز به «سیستم» یا «فهرست اسناد» اشاره نکن — فقط متن پرس‌وجو را خروج بده.
+Rules:
+1. Output ONLY the rewritten query text — no explanations, prefixes, quotes, or punctuation.
+2. Preserve the language of the input (Persian/English).
+3. If the current message is already self-contained and complete, repeat it verbatim.
+4. If the current message is short or ambiguous (e.g. "بیشتر توضیح بده", "منظورت چیست؟",
+   "چرا؟", "explain more", "what do you mean", "why?"), extract the main topic from the
+   previous conversation and incorporate it into the query.
+   Example: conversation about "ماشین تورینگ" -> input "بیشتر توضیح بده" -> "بیشتر توضیح بده درباره ماشین تورینگ"
+5. Never mention "system", "history", or "documents" — output only the query text.
 """
 
 
@@ -82,6 +84,11 @@ def build_gemini_history(
 
     Consecutive same-role messages are merged to satisfy Gemini's
     alternating-roles requirement.
+
+    The returned tuples are converted by ``chat_manager`` into Gemini's native
+    ``contents`` array: ``[{"role": "user", "parts": [...]}, {"role": "model",
+    "parts": [...]}]`` — the exact format the Gemini API expects for
+    conversation history.
     """
     turns: list[tuple[str, str]] = []
     for msg in history:
@@ -175,6 +182,11 @@ def rewrite_search_query(
     """
     if not _needs_rewriting(question, history):
         return question
+
+    # CRITICAL: ensure the smart key pool is configured before the rewrite LLM
+    # call. Without this, generate_chat_response() raises "no API key
+    # configured" and the rewrite silently falls back to concatenation.
+    key_manager.configure(resolve_api_keys())
 
     # Build a compact transcript for the rewrite prompt.
     transcript_lines = []

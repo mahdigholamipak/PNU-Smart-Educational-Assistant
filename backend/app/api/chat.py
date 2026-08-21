@@ -131,6 +131,7 @@ def get_session(
                 "id": msg.id,
                 "role": msg.role,
                 "content": msg.content,
+                "image": msg.image_data,
                 "sources": sources,
                 "created_at": msg.created_at,
             }
@@ -169,20 +170,31 @@ def send_message(
     # so the memory window excludes the new turn itself.
     history = get_recent_messages(db, session.id, max_turns=6)
 
-    # Persist the user message
-    user_message = ChatMessage(session_id=session.id, role="user", content=payload.content)
+    # Persist the user message. For image-only messages (no text), store a
+    # friendly placeholder so the bubble and history aren't blank. The raw
+    # image (Base64 data URL) is persisted too so the chat/history UI can
+    # re-render the actual screenshot thumbnail on reload.
+    display_content = payload.content.strip() or "📷 تصویر"
+    user_message = ChatMessage(
+        session_id=session.id,
+        role="user",
+        content=display_content,
+        image_data=payload.image_data or None,
+    )
     db.add(user_message)
 
     # Dynamic session naming: use the first prompt as the title if the session
     # still carries the default course title (i.e., no custom title yet).
     if session.title == (session.course.title if session.course else None):
-        session.title = payload.content[:30]
+        session.title = display_content[:30]
 
     # Bump "last edited" timestamp so the session rises to the top of history.
     session.updated_at = datetime.utcnow()
     db.commit()
 
     # Generate RAG answer scoped to the session's course.
+    # The optional image (Base64 data URL) is passed ONLY to the LLM for
+    # multimodal analysis — the ChromaDB vector search stays text-only.
     # Wrap the entire generation block so ANY exception is logged with a full
     # stack trace and surfaced to the user — never swallowed silently.
     try:
@@ -191,6 +203,7 @@ def send_message(
             course_id=session.course_id,
             db=db,
             history=history,
+            image_data=payload.image_data,
         )
     except Exception:
         log_event(
@@ -244,6 +257,15 @@ def send_message(
         "content": assistant_message.content,
         "sources": sources,
         "created_at": assistant_message.created_at,
+        # Include the persisted user message's image so the frontend can
+        # reconcile its temp message with the DB-backed one on reload.
+        "user_message": {
+            "id": user_message.id,
+            "role": user_message.role,
+            "content": user_message.content,
+            "image": user_message.image_data,
+            "created_at": user_message.created_at,
+        },
     }
 
 

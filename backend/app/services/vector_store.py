@@ -165,7 +165,12 @@ def search_course_documents(
     query: str,
     top_k: int = 5,
 ) -> list[dict]:
-    """Search the course collection and return top-k matching chunks."""
+    """Search the course collection and return top-k matching chunks.
+
+    Uses ChromaDB's built-in embedding function to embed ``query`` at query
+    time. For callers that already have a pre-computed embedding (e.g. the
+    combined OCR+user query), prefer :func:`search_course_documents_embedded`.
+    """
     collection = get_or_create_collection(course_id)
 
     if collection.count() == 0:
@@ -173,6 +178,51 @@ def search_course_documents(
 
     results = collection.query(
         query_texts=[query],
+        n_results=min(top_k, collection.count()),
+        include=["documents", "metadatas", "distances"],
+    )
+
+    documents = results.get("documents", [[]])[0]
+    metadatas = results.get("metadatas", [[]])[0]
+    distances = results.get("distances", [[]])[0]
+
+    hits = []
+    for idx, doc in enumerate(documents):
+        metadata = metadatas[idx] if idx < len(metadatas) else {}
+        distance = distances[idx] if idx < len(distances) else None
+        hits.append(
+            {
+                "content": doc,
+                "filename": metadata.get("filename", "ناشناخته"),
+                "resource_id": metadata.get("resource_id", 0),
+                "chunk_index": metadata.get("chunk_index", 0),
+                "page": metadata.get("page"),
+                "score": round(1 - float(distance), 4) if distance is not None else None,
+            }
+        )
+    return hits
+
+
+def search_course_documents_embedded(
+    course_id: int,
+    query_embedding: list[float],
+    top_k: int = 5,
+) -> list[dict]:
+    """Search the course collection using a pre-computed query embedding.
+
+    This is the explicit-embedding path: the caller generates the vector for
+    the (possibly combined OCR+user) query via :func:`embed_batch_managed` and
+    passes it here. ChromaDB then performs a pure vector similarity search
+    without re-embedding the query text — guaranteeing the exact embedding
+    that was computed from the combined query is used for retrieval.
+    """
+    collection = get_or_create_collection(course_id)
+
+    if collection.count() == 0:
+        return []
+
+    results = collection.query(
+        query_embeddings=[query_embedding],
         n_results=min(top_k, collection.count()),
         include=["documents", "metadatas", "distances"],
     )

@@ -26,6 +26,14 @@ def _run_lightweight_migrations() -> None:
                 # Backfill existing rows with their created_at value.
                 conn.execute(text("UPDATE chat_sessions SET updated_at = created_at WHERE updated_at IS NULL"))
 
+    # Chat messages: add image_data so attached screenshots persist and can be
+    # re-rendered as real thumbnails in the chat/history UI.
+    if "chat_messages" in inspector.get_table_names():
+        columns = {col["name"] for col in inspector.get_columns("chat_messages")}
+        if "image_data" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE chat_messages ADD COLUMN image_data TEXT"))
+
     # Legacy API usage table: replaced by api_usage_stats (per-key + model rows).
     # Drop the old single-model-per-key table so it never shadows the new one.
     if "api_usage" in inspector.get_table_names():
