@@ -2,13 +2,13 @@
 
 Completely decouples embedding generation from LangChain/ChromaDB's automatic
 API call machinery. Drives the raw Gemini REST ``batchEmbedContents`` endpoint
-directly with ``requests``, passing the API key as a URL query parameter on
-every single request.
+directly with ``requests``, passing the API key via the ``x-goog-api-key``
+header on every single request.
 
 Why this is bulletproof for multi-key rate-limit resilience:
 
 - There is no SDK client, no cached transport, no session to reuse — each HTTP
-  call is a brand-new request bound to *exactly* the key in the URL.
+  call is a brand-new request bound to *exactly* the key in the header.
 - The :class:`SmartKeyManager` holds persistent per-key state (cooldown timers)
   and rotates keys proactively before every batch, so fresh keys are actually
   used instead of hammering an exhausted key.
@@ -17,6 +17,7 @@ Why this is bulletproof for multi-key rate-limit resilience:
   the whole document).
 """
 
+import hashlib
 import logging
 import threading
 import time
@@ -27,6 +28,7 @@ import requests
 from app.config import settings
 from app.database import SessionLocal
 from app.models import ApiUsageStats
+from app.services.cache import LRUCache, Singleflight
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +166,13 @@ class SmartKeyManager:
 # document and across successive uploads within the same process.
 key_manager = SmartKeyManager()
 
+# LRU cache + single-flight for query-level embeddings (RAG search queries).
+# Bulk document ingestion intentionally bypasses this cache (every chunk is
+# unique), but repeated/similar search queries are cached and coalesced so
+# redundant student queries never burn tokens.
+_embedding_cache = LRUCache[list[float]](max_size=settings.embedding_cache_size)
+_embedding_singleflight = Singleflight()
+
 
 def _estimate_tokens(texts: list[str]) -> int:
     """Estimate token count for a batch when the API omits usage metadata.
@@ -180,8 +189,9 @@ def _estimate_tokens(texts: list[str]) -> int:
 def _embed_batch_raw(texts: list[str], model: str, api_key: str) -> list[list[float]]:
     """Embed one batch via the Gemini REST ``batchEmbedContents`` endpoint.
 
-    The API key is sent as a URL query parameter on this single request — there
-    is no cached client/session, so the key is guaranteed to be used.
+    The API key is sent via the ``x-goog-api-key`` header on this single
+    request — there is no cached client/session, so the key is guaranteed to
+    be used and never leaks into URL logs.
     """
     from app.services.llm_service import _ensure_models_prefix, normalize_model_name
 
@@ -207,7 +217,7 @@ def _embed_batch_raw(texts: list[str], model: str, api_key: str) -> list[list[fl
 
     resp = requests.post(
         url,
-        params={"key": api_key},
+        headers={"x-goog-api-key": api_key},
         json=payload,
         timeout=30,
     )
@@ -276,6 +286,7 @@ def embed_batch_managed(
         except requests.exceptions.RequestException as exc:
             # Transient network failure (SSLError, ConnectionError, Timeout,
             # etc.). Sleep with exponential backoff and retry the same batch.
+            logger.warning("Transient network error on embedding (attempt %s): %s", attempt + 1, exc)
             delay = min(settings.embedding_backoff_base * (2 ** attempt), 60.0)
             time.sleep(delay)
             attempt += 1
@@ -316,3 +327,43 @@ def embed_batches_managed(
             f"Embedding count mismatch: got {len(all_embeddings)}, expected {len(chunks)}"
         )
     return all_embeddings
+
+
+def embed_query_cached(text: str, model: str, *, force: bool = False) -> list[float]:
+    """Embed a single search-query text with LRU cache + single-flight coalescing.
+
+    Repeated student queries (e.g. the same question asked twice, or two users
+    asking the same thing within a short window) resolve from the in-memory
+    cache, and a burst of identical concurrent queries debounce to ONE upstream
+    Gemini call via :class:`Singleflight` — the followers wait on the leader's
+    result instead of each burning an API request.
+
+    During bulk document ingestion callers should use
+    :func:`embed_batches_managed` directly (every chunk is unique, so caching
+    would add overhead without benefit).
+    """
+    from app.services.llm_service import normalize_model_name
+
+    text = str(text or "").strip()
+    if not text:
+        raise ValueError("embed_query_cached requires non-empty text")
+
+    model = normalize_model_name(model) or "unknown"
+
+    # Master switch: when caching is disabled, fall through to the plain call.
+    cache_key = ""
+    if settings.cache_enabled and not force:
+        cache_key = hashlib.sha256(f"{model}\x00{text}".encode("utf-8")).hexdigest()
+        cached = _embedding_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # Single-flight: a burst of identical concurrent queries debounce to one call.
+        vector = _embedding_singleflight.execute(
+            cache_key,
+            lambda: embed_batch_managed([text], model)[0],
+        )
+        _embedding_cache.put(cache_key, vector)
+        return vector
+
+    return embed_batch_managed([text], model)[0]

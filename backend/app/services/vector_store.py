@@ -1,3 +1,19 @@
+"""ChromaDB vector store integration.
+
+Production-hardened client lifecycle:
+
+- A single module-level :class:`ChromaClientManager` lazily creates ONE
+  persistent ChromaDB client and reuses it for the lifetime of the process.
+  Creating a new ``PersistentClient`` per call (the previous behavior) leaked
+  file handles and risked corrupting the SQLite-backed index under concurrent
+  requests.
+- All collection access goes through the shared client, so concurrent
+  requests share the same underlying connection pool instead of each opening
+  their own.
+"""
+
+import logging
+from threading import Lock
 from typing import Any
 
 import chromadb
@@ -10,11 +26,33 @@ from app.services.llm_service import (
     resolve_embedding_model,
 )
 
+logger = logging.getLogger(__name__)
+
+
+class ChromaClientManager:
+    """Thread-safe singleton that owns the single ChromaDB client."""
+
+    def __init__(self) -> None:
+        self._client: chromadb.ClientAPI | None = None
+        self._lock = Lock()
+
+    def get_client(self) -> chromadb.ClientAPI:
+        """Return the shared persistent client, creating it once on first use."""
+        if self._client is None:
+            with self._lock:
+                if self._client is None:
+                    settings.chroma_path.mkdir(parents=True, exist_ok=True)
+                    self._client = chromadb.PersistentClient(path=str(settings.chroma_path))
+        return self._client
+
+
+#: Module-level singleton shared by all vector-store operations.
+_client_manager = ChromaClientManager()
+
 
 def _get_chroma_client() -> chromadb.ClientAPI:
-    """Return a persistent ChromaDB client."""
-    settings.chroma_path.mkdir(parents=True, exist_ok=True)
-    return chromadb.PersistentClient(path=str(settings.chroma_path))
+    """Return the shared persistent ChromaDB client."""
+    return _client_manager.get_client()
 
 
 def get_or_create_collection(course_id: int) -> Any:
@@ -102,7 +140,8 @@ def get_resource_chunks(course_id: int, resource_id: int) -> list[dict]:
             where={"resource_id": resource_id},
             include=["documents", "metadatas"],
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to fetch chunks for resource %s: %s", resource_id, exc)
         return []
 
     ids = result.get("ids", []) or []

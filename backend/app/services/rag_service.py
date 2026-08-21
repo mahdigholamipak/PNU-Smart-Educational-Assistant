@@ -1,9 +1,25 @@
+"""RAG orchestration: OCR -> query rewrite -> embedding -> retrieval -> generation.
+
+Implements the "Hybrid Expert Pedagogical RAG" approach where the LLM acts as
+an expert professor, solving problems step-by-step rather than strictly saying
+"not found in context." The system prompts are kept here (they are the
+product's core behavior) but the error kinds are now an enum and the return
+value is a typed :class:`RAGResult` instead of a bare 4-tuple.
+"""
+
+import hashlib
+import logging
+from dataclasses import dataclass, field
+from enum import Enum
+
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import Resource
+from app.services.cache import LRUCache
 from app.services.chat_manager import generate_chat_response
 from app.services.conversation_memory import build_gemini_history, rewrite_search_query
-from app.services.embedding_manager import embed_batch_managed, key_manager
+from app.services.embedding_manager import embed_query_cached, key_manager
 from app.services.llm_service import (
     resolve_api_keys,
     resolve_chat_model,
@@ -11,6 +27,8 @@ from app.services.llm_service import (
     resolve_ocr_model,
 )
 from app.services.vector_store import search_course_documents_embedded
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an expert University Professor and Teaching Assistant. Your task is to provide accurate, step-by-step solutions to the student's queries based on your knowledge and the provided context.
 
@@ -26,50 +44,100 @@ SYSTEM_PROMPT = """You are an expert University Professor and Teaching Assistant
 </rules>
 """
 
-# Error kinds returned by the RAG pipeline
-KIND_OK = "none"
-KIND_NO_RESOURCES = "no_resources"
-KIND_BROKEN_RESOURCES = "broken_resources"
-KIND_AI_CONNECTION = "ai_connection"
-
 # Lightweight OCR prompt: extract raw text from the attached image with no
 # commentary, so the combined query can drive the ChromaDB vector search.
-OCR_SYSTEM_PROMPT = """Extract all Persian/English text, equations, and questions from this image accurately.
+# Kept dense and imperative to minimize token cost while preserving the two
+# rules that matter most: raw output and LaTeX isolation of mixed-direction
+# expressions (which the RTL KaTeX renderer depends on).
+OCR_SYSTEM_PROMPT = """Extract all Persian/English text and equations from this image.
 
-Rules:
-1. Output ONLY the extracted text — no prefixes, suffixes, explanations, or quotes.
-2. If the image contains a question, math expression, or technical term, write it exactly as-is.
-3. If there is no readable text in the image, return an empty output.
-4. Whenever you write English variables, state names, numbers, or bracket notations
-   mixed with Persian text (e.g., A[6], B[1], C[4]), you MUST wrap them in inline
-   LaTeX (e.g., `$A[6]$`, `$B[1]$`, `$C[4]$`). This ensures correct Left-to-Right
-   rendering via math block isolation.
+<rules>
+1. Output ONLY the extracted text — no prefixes, explanations, or quotes.
+2. No readable text → output nothing.
+3. English variables/numbers mixed with Persian (e.g. A[6], B[1], C[4]) MUST be
+   wrapped in inline LaTeX ($A[6]$, $B[1]$, $C[4]$) for correct RTL isolation.
+</rules>
 """
 
+# LRU cache for OCR results, keyed by SHA-256 of the raw image bytes. The same
+# screenshot (e.g. a question image pasted once or shared between users) is
+# only sent to Gemini once, eliminating redundant OCR token spend.
+_ocr_cache = LRUCache[str](max_size=settings.ocr_cache_size)
 
-def _check_course_resources(course_id: int, db: Session) -> str | None:
+
+class RAGErrorKind(str, Enum):
+    """Typed error kinds returned by the RAG pipeline."""
+
+    NONE = "none"
+    NO_RESOURCES = "no_resources"
+    BROKEN_RESOURCES = "broken_resources"
+    AI_CONNECTION = "ai_connection"
+
+
+@dataclass
+class RAGResult:
+    """Typed result of the RAG pipeline.
+
+    ``answer`` is the generated text (may be empty on error).
+    ``sources`` is the list of citation sources (may be empty).
+    ``error_kind`` is one of :class:`RAGErrorKind`.
+    ``error_detail`` carries the underlying exception message for logging.
+    """
+
+    answer: str = ""
+    sources: list[dict] = field(default_factory=list)
+    error_kind: RAGErrorKind = RAGErrorKind.NONE
+    error_detail: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        """True when the pipeline produced a usable answer."""
+        return self.error_kind == RAGErrorKind.NONE
+
+
+def _check_course_resources(course_id: int, db: Session) -> RAGErrorKind | None:
     """Return an error kind if the course has no usable (ready) resources, else None."""
     resources = db.query(Resource).filter(Resource.course_id == course_id).all()
     ready = [r for r in resources if r.status == "ready"]
     if not ready:
-        return KIND_NO_RESOURCES
+        # If there are resources but none are ready, they're broken/failed.
+        if resources:
+            return RAGErrorKind.BROKEN_RESOURCES
+        return RAGErrorKind.NO_RESOURCES
     return None
 
 
 def extract_image_text(image_data: str) -> str:
     """Best-effort OCR: extract readable text from an attached image.
 
-    Uses a fast Gemini-Flash call with the image attached. Any failure returns
-    an empty string so the RAG pipeline gracefully falls back to the existing
-    text-only search path — field extraction NEVER breaks the chat.
+    Uses a fast Gemini-Flash call with the image attached. Results are cached
+    by SHA-256 of the image bytes so the same screenshot is only sent to
+    Gemini once. Any failure returns an empty string so the RAG pipeline
+    gracefully falls back to the existing text-only search path — field
+    extraction NEVER breaks the chat.
     """
     if not image_data:
         return ""
+
+    # The data URL includes a "data:<mime>;base64," prefix — only hash the raw
+    # base64 payload so identical images with different MIME labels share a key.
+    b64_payload = image_data.split(",", 1)[1] if "," in image_data else image_data
+    cache_key = hashlib.sha256(b64_payload.encode("utf-8")).hexdigest()
+
+    if settings.cache_enabled:
+        cached = _ocr_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     try:
         messages = [("user", "متن داخل تصویر را استخراج کن.", image_data)]
         extracted = generate_chat_response(messages, resolve_ocr_model(), system_prompt=OCR_SYSTEM_PROMPT)
-        return extracted.strip()
-    except Exception:
+        result = extracted.strip()
+        if settings.cache_enabled:
+            _ocr_cache.put(cache_key, result)
+        return result
+    except Exception as exc:
+        logger.warning("OCR extraction failed (falling back to text-only): %s", exc)
         return ""
 
 
@@ -79,7 +147,7 @@ def _build_ai_answer(
     history: list[dict] | None = None,
     image_data: str | None = None,
     image_text: str = "",
-) -> tuple[str, str, str]:
+) -> tuple[str, RAGErrorKind, str]:
     """Call Gemini with the RAG context. Returns (answer, error_kind, error_detail).
 
     ``history`` is a list of ``{"role", "content"}`` dicts from the database
@@ -151,9 +219,10 @@ def _build_ai_answer(
             resolve_chat_model(),
             system_prompt=SYSTEM_PROMPT,
         )
-        return answer, KIND_OK, ""
+        return answer, RAGErrorKind.NONE, ""
     except Exception as exc:
-        return "", KIND_AI_CONNECTION, str(exc)
+        logger.exception("AI answer generation failed: %s", exc)
+        return "", RAGErrorKind.AI_CONNECTION, str(exc)
 
 
 def _make_snippet(content: str, max_len: int = 200) -> str:
@@ -171,10 +240,11 @@ def generate_rag_answer(
     history: list[dict] | None = None,
     image_data: str | None = None,
     image_text: str = "",
-) -> tuple[str, list[dict], str, str | None]:
+) -> RAGResult:
     """Generate a memory-aware RAG answer.
 
-    Returns ``(answer, sources, error_kind, error_detail)``.
+    Returns a :class:`RAGResult` with ``answer``, ``sources``, ``error_kind``
+    and ``error_detail``.
 
     ``history`` is the recent conversation (list of ``{role, content}`` dicts).
     When present it is used for:
@@ -204,21 +274,17 @@ def generate_rag_answer(
 
     # 1. Check course-level resource availability
     resource_kind = _check_course_resources(course_id, db)
-    if resource_kind == KIND_NO_RESOURCES:
-        return (
-            "در حال حاضر هیچ منبع درسی برای این درس در سیستم بارگذاری نشده است. "
+    if resource_kind == RAGErrorKind.NO_RESOURCES:
+        return RAGResult(
+            answer="در حال حاضر هیچ منبع درسی برای این درس در سیستم بارگذاری نشده است. "
             "لطفاً از مدیر منابع بخواهید منابع درس را اضافه کند.",
-            [],
-            KIND_NO_RESOURCES,
-            None,
+            error_kind=RAGErrorKind.NO_RESOURCES,
         )
-    if resource_kind == KIND_BROKEN_RESOURCES:
-        return (
-            "منابع درسی این درس دچار مشکل شده‌اند و در حال حاضر قابل استفاده نیستند. "
+    if resource_kind == RAGErrorKind.BROKEN_RESOURCES:
+        return RAGResult(
+            answer="منابع درسی این درس دچار مشکل شده‌اند و در حال حاضر قابل استفاده نیستند. "
             "لطفاً با مدیر سیستم تماس بگیرید تا منابع بررسی و مجدداً بارگذاری شوند.",
-            [],
-            KIND_BROKEN_RESOURCES,
-            None,
+            error_kind=RAGErrorKind.BROKEN_RESOURCES,
         )
 
     # 1b. PRE-RETRIEVAL OCR: if an image is attached, extract its text with a
@@ -256,7 +322,9 @@ def generate_rag_answer(
     #    query using the same Gemini embedding model that indexed the chunks.
     #    This guarantees the exact embedding of the combined OCR+user text is
     #    used for retrieval — ChromaDB does NOT re-embed the query text.
-    query_embedding = embed_batch_managed([search_query], resolve_embedding_model())[0]
+    #    Uses the LRU-cached + single-flight-coalesced path so repeated or
+    #    concurrent identical queries never burn extra tokens.
+    query_embedding = embed_query_cached(search_query, resolve_embedding_model())
 
     # 4. VECTOR SEARCH: query ChromaDB with the pre-computed embedding.
     retrieved = search_course_documents_embedded(
@@ -268,7 +336,7 @@ def generate_rag_answer(
     # 4b. Safety net: if the rewritten query returned nothing, retry with the
     #     original (combined) question text.
     if not retrieved and search_query != search_text:
-        fallback_embedding = embed_batch_managed([search_text], resolve_embedding_model())[0]
+        fallback_embedding = embed_query_cached(search_text, resolve_embedding_model())
         retrieved = search_course_documents_embedded(
             course_id=course_id,
             query_embedding=fallback_embedding,
@@ -290,16 +358,15 @@ def generate_rag_answer(
         )
 
         # If AI failed, return honest error + empty sources
-        if ai_kind == KIND_AI_CONNECTION:
-            return (
-                "متأسفانه در ارتباط با مدل هوش مصنوعی خطایی رخ داد. "
+        if ai_kind == RAGErrorKind.AI_CONNECTION:
+            return RAGResult(
+                answer="متأسفانه در ارتباط با مدل هوش مصنوعی خطایی رخ داد. "
                 "لطفاً بعداً دوباره تلاش کنید یا با مدیر سیستم تماس بگیرید.",
-                [],
-                KIND_AI_CONNECTION,
-                ai_error,
+                error_kind=RAGErrorKind.AI_CONNECTION,
+                error_detail=ai_error,
             )
 
-        return answer, [], KIND_OK, None
+        return RAGResult(answer=answer)
 
     # 5. Build context + conversation history and call Gemini.
     #    The image (if any) is passed to the LLM along with the OCR-extracted
@@ -329,13 +396,13 @@ def generate_rag_answer(
         )
 
     # If AI failed but we have retrieval, still return honest error + sources
-    if ai_kind == KIND_AI_CONNECTION:
-        return (
-            "متأسفانه در ارتباط با مدل هوش مصنوعی خطایی رخ داد. "
+    if ai_kind == RAGErrorKind.AI_CONNECTION:
+        return RAGResult(
+            answer="متأسفانه در ارتباط با مدل هوش مصنوعی خطایی رخ داد. "
             "لطفاً بعداً دوباره تلاش کنید یا با مدیر سیستم تماس بگیرید.",
-            sources,
-            KIND_AI_CONNECTION,
-            ai_error,
+            sources=sources,
+            error_kind=RAGErrorKind.AI_CONNECTION,
+            error_detail=ai_error,
         )
 
-    return answer, sources, KIND_OK, None
+    return RAGResult(answer=answer, sources=sources)

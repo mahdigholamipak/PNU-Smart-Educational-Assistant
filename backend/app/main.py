@@ -1,11 +1,36 @@
+"""FastAPI application entrypoint.
+
+Wires together:
+- Structured logging (``app.core.logging``)
+- Standardized exception handlers (``app.core.exceptions``)
+- Database table creation + lightweight migrations
+- All API routers
+"""
+
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
 from app.api import admin, auth, chat, courses, requests, users
 from app.config import settings
+from app.core.exceptions import register_exception_handlers
+from app.core.logging import configure_logging
 from app.database import Base, engine
-from app.models import *  # noqa: F401,F403 - ensures all models are registered
+from app.models import (  # noqa: F401 - ensures all models are registered
+    ApiUsageStats,
+    ChatMessage,
+    ChatSession,
+    Course,
+    CourseRequest,
+    Resource,
+    Setting,
+    SystemLog,
+    User,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _run_lightweight_migrations() -> None:
@@ -40,6 +65,45 @@ def _run_lightweight_migrations() -> None:
         with engine.begin() as conn:
             conn.execute(text("DROP TABLE IF EXISTS api_usage"))
 
+
+def _log_startup_diagnostics() -> None:
+    """Log a concise configuration summary at startup.
+
+    Reports database engine, storage paths, cache state, CORS origins, and the
+    number of configured Gemini API keys — WITHOUT ever logging the keys
+    themselves. This gives operators a single "system ready" banner without
+    leaking secrets.
+    """
+    from app.services.llm_service import resolve_api_keys
+
+    db_display = settings.database_url
+    # Mask credentials in the URL (e.g. "postgresql://user:***@host/db").
+    if "://" in db_display and "@" in db_display:
+        scheme, _, rest = db_display.partition("://")
+        userinfo, _, host = rest.rpartition("@")
+        if ":" in userinfo:
+            userinfo = userinfo.split(":", 1)[0]
+        db_display = f"{scheme}://{userinfo}:***@{host}"
+
+    key_count = len(resolve_api_keys())
+
+    logger.info("─" * 62)
+    logger.info("PNU Smart Educational Assistant — startup diagnostics")
+    logger.info("─" * 62)
+    logger.info("Database:        %s", db_display)
+    logger.info("ChromaDB dir:    %s", settings.chroma_path)
+    logger.info("Uploads dir:     %s", settings.upload_path)
+    logger.info("CORS origins:    %s", ", ".join(settings.cors_origin_list) or "(none)")
+    logger.info("Cache enabled:   %s (embedding=%s, ocr=%s)", settings.cache_enabled, settings.embedding_cache_size, settings.ocr_cache_size)
+    logger.info("Gemini keys:     %d configured", key_count)
+    if key_count == 0:
+        logger.warning("No Gemini API keys configured — AI features will fail until keys are added in Admin → Settings")
+    logger.info("─" * 62)
+
+
+# Configure structured logging once at startup.
+configure_logging()
+
 app = FastAPI(
     title="PNU Smart Educational Assistant API",
     description="RAG-based AI chat API for university students",
@@ -54,11 +118,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register standardized exception handlers (HTTP, validation, SQLAlchemy, generic).
+register_exception_handlers(app)
+
 # Create database tables on startup
 Base.metadata.create_all(bind=engine)
 
 # Apply lightweight migrations for new columns on existing tables
 _run_lightweight_migrations()
+
+# Log the configuration summary banner (DB, storage, cache, key count).
+_log_startup_diagnostics()
 
 # Register routers
 app.include_router(auth.router, prefix="/api")

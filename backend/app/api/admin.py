@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from pathlib import Path
 
@@ -29,6 +30,8 @@ from app.services.vector_store import (
     get_resource_chunks,
     update_chunk_content,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_admin)])
 
@@ -278,7 +281,8 @@ def _reprocess_resource_background(resource_id: int) -> None:
                 resource_id,
             )
             db.commit()
-    except Exception:
+    except Exception as exc:
+        logger.error("Background reprocess failed for resource %s: %s", resource_id, exc)
         db.rollback()
     finally:
         db.close()
@@ -370,8 +374,8 @@ def delete_course(course_id: int, db: Session = Depends(get_db)):
     # Delete Chroma collection
     try:
         delete_course_collection(course_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to delete Chroma collection for course %s: %s", course_id, exc)
 
     # Delete uploaded files
     course_dir = settings.upload_path / str(course_id)
@@ -379,8 +383,8 @@ def delete_course(course_id: int, db: Session = Depends(get_db)):
         for f in course_dir.iterdir():
             f.unlink(missing_ok=True)
         course_dir.rmdir()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to clean upload dir for course %s: %s", course_id, exc)
 
     # Defensive: explicitly delete chat sessions (and their messages via
     # cascade) before the course itself, so the NOT NULL FK constraint on
@@ -564,7 +568,7 @@ def clear_logs(db: Session = Depends(get_db)):
 # ---------- Gemini Models & Test Connection (Task 4) ----------
 
 
-def _fetch_models_with_keys(api_keys: list[str], db: Session) -> dict:
+def _fetch_models_with_keys(api_keys: list[str]) -> dict:
     """Fetch the Gemini model list using the first key that works.
 
     Iterates over all configured keys so that an invalid/rate-limited first key
@@ -575,7 +579,7 @@ def _fetch_models_with_keys(api_keys: list[str], db: Session) -> dict:
         try:
             resp = requests.get(
                 "https://generativelanguage.googleapis.com/v1beta/models",
-                params={"key": api_key},
+                headers={"x-goog-api-key": api_key},
                 timeout=15,
             )
             if resp.status_code in (400, 401, 403):
@@ -583,8 +587,6 @@ def _fetch_models_with_keys(api_keys: list[str], db: Session) -> dict:
                 continue
             resp.raise_for_status()
             return resp.json()
-        except HTTPException:
-            raise
         except Exception as exc:
             last_error = str(exc)
             continue
@@ -598,7 +600,7 @@ def list_gemini_models(db: Session = Depends(get_db)):
     if not api_keys:
         raise HTTPException(status_code=400, detail="کلید API تنظیم نشده است. ابتدا کلید را ذخیره کنید.")
 
-    data = _fetch_models_with_keys(api_keys, db)
+    data = _fetch_models_with_keys(api_keys)
 
     chat_models = []
     embedding_models = []
@@ -648,15 +650,13 @@ def test_gemini_connection(payload: dict, db: Session = Depends(get_db)):
         try:
             resp = requests.get(
                 "https://generativelanguage.googleapis.com/v1beta/models",
-                params={"key": api_key},
+                headers={"x-goog-api-key": api_key},
                 timeout=15,
             )
             if resp.status_code in (400, 401, 403):
                 continue  # invalid key, try next
             resp.raise_for_status()
             models_data = resp.json()
-        except HTTPException:
-            raise
         except Exception as exc:
             log_event(db, "error", "gemini", "خطا در تست ارتباط (لیست مدل‌ها)", str(exc))
             continue
@@ -672,7 +672,7 @@ def test_gemini_connection(payload: dict, db: Session = Depends(get_db)):
             try:
                 ping_resp = requests.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/{chat_model}:generateContent",
-                    params={"key": api_key},
+                    headers={"x-goog-api-key": api_key},
                     json={"contents": [{"parts": [{"text": "سلام"}]}]},
                     timeout=15,
                 )
@@ -692,7 +692,7 @@ def test_gemini_connection(payload: dict, db: Session = Depends(get_db)):
             try:
                 embed_resp = requests.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/{embedding_model}:embedContent",
-                    params={"key": api_key},
+                    headers={"x-goog-api-key": api_key},
                     json={"content": {"parts": [{"text": "تست"}]}},
                     timeout=15,
                 )

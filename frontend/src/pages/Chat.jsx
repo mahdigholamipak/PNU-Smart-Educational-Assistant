@@ -3,32 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../api/axios.client";
 import Spinner from "../components/Spinner";
 import MarkdownRenderer from "../components/MarkdownRenderer";
-
-/** Deduplicate a sources array by filename (keep first occurrence). */
-function dedupeSources(sources) {
-  if (!Array.isArray(sources)) return [];
-  const seen = new Set();
-  const result = [];
-  for (const src of sources) {
-    if (!src || seen.has(src.filename)) continue;
-    seen.add(src.filename);
-    result.push(src);
-  }
-  return result;
-}
-
-/** Read a File/Blob into a Base64 data URL. */
-function readFileAsDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
-/** Max size for an attached image (10 MB raw → ~13.4 MB base64). */
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+import { MAX_IMAGE_BYTES, dedupeSources, readFileAsDataURL } from "../utils/chat";
 
 export default function Chat() {
   const [searchParams] = useSearchParams();

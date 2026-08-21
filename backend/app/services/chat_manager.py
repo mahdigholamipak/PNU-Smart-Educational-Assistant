@@ -2,8 +2,8 @@
 
 Applies the same resilient patterns as the embedding manager to the Gemini
 chat/generation endpoint. Drives the raw REST ``generateContent`` endpoint
-directly with ``requests``, passing the API key as a URL query parameter on
-every request — no cached SDK client, no fragile wrapper.
+directly with ``requests``, passing the API key via the ``x-goog-api-key``
+header on every request — no cached SDK client, no fragile wrapper.
 
 Uses the shared :class:`SmartKeyManager` so chat generation benefits from
 proactive key rotation, per-key cooldown on 429, and automatic retry of the
@@ -11,6 +11,7 @@ same prompt with the next available key.
 """
 
 import base64
+import logging
 import re
 import time
 from typing import Any
@@ -20,6 +21,8 @@ import requests
 from app.config import settings
 from app.services.embedding_manager import RateLimitError, key_manager
 from app.services.llm_service import resolve_api_keys, resolve_rewrite_model
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_inline_data(image_data: str) -> tuple[str, str]:
@@ -63,8 +66,9 @@ def _generate_content_raw(
     role is ``"system"`` or ``"human"`` and ``image_data`` is an optional
     Base64 data URL string (e.g. ``data:image/png;base64,...``). When an image
     is present it is embedded as a Gemini ``inline_data`` part alongside the
-    text part, enabling multimodal analysis. The API key is sent as a URL query
-    parameter on this single request — there is no cached client/session.
+    text part, enabling multimodal analysis. The API key is sent via the
+    ``x-goog-api-key`` header on this single request — there is no cached
+    client/session.
 
     ``system_prompt``, when provided, is sent in Gemini's dedicated
     ``systemInstruction`` field so the model's instructions are cleanly
@@ -123,7 +127,7 @@ def _generate_content_raw(
 
     resp = requests.post(
         url,
-        params={"key": api_key},
+        headers={"x-goog-api-key": api_key},
         json=payload,
         timeout=60,
     )
@@ -157,6 +161,8 @@ def generate_chat_response(
 
     Retries the *same* prompt on 429 by marking the key as burned and rotating
     to the next available key (with exponential backoff when all keys cool).
+    Also retries transient network errors (SSL/connection/timeout) with
+    exponential backoff so unstable networks don't abort the request.
 
     ``system_prompt`` is forwarded to Gemini's ``systemInstruction`` field
     (optional; used by the RAG answer generator for its system rules).
@@ -181,9 +187,17 @@ def generate_chat_response(
             key_manager.report_429(api_key)
             attempt += 1
             continue
+        except requests.exceptions.RequestException as exc:
+            # Transient network failure (SSLError, ConnectionError, Timeout,
+            # etc.). Sleep with exponential backoff and retry the same prompt.
+            logger.warning("Transient network error on chat generation (attempt %s): %s", attempt + 1, exc)
+            delay = min(settings.embedding_backoff_base * (2 ** attempt), 60.0)
+            time.sleep(delay)
+            attempt += 1
+            continue
 
     raise RuntimeError(
-        "محدودیت نرخ API (429) پس از چند بار تلاش برطرف نشد. "
+        "محدودیت نرخ API (429) یا خطای شبکه پس از چند بار تلاش برطرف نشد. "
         "لطفاً کلیدهای API بیشتری اضافه کنید یا بعداً دوباره تلاش کنید."
     )
 
@@ -219,9 +233,9 @@ def generate_chat_title(text: str) -> str:
         title = title.strip().strip('"').strip("«»").strip()
         if title and len(title) <= 60:
             return title
-    except Exception:
+    except Exception as exc:
         # Any failure → fall through to the deterministic fallback.
-        pass
+        logger.debug("Chat title generation failed, using fallback: %s", exc)
 
     # Deterministic fallback: truncate the input to a reasonable title length.
     return text[:30]

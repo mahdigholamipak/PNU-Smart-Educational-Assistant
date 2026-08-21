@@ -1,6 +1,9 @@
+import logging
 from pathlib import Path
 
 import fitz  # PyMuPDF
+
+logger = logging.getLogger(__name__)
 
 
 def extract_pages_from_pdf(file_path: str | Path) -> list[dict]:
@@ -16,7 +19,8 @@ def extract_pages_from_pdf(file_path: str | Path) -> list[dict]:
 
     try:
         doc = fitz.open(file_path_str)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to open PDF %s: %s", file_path_str, exc)
         return pages
 
     try:

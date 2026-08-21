@@ -1,23 +1,60 @@
+"""Gemini model/key resolution and ChromaDB embedding-function adapter.
+
+Responsibilities:
+- Resolve the active Gemini API keys (settings table -> env/config fallback).
+- Resolve the chat/rewrite/OCR/embedding model names (settings table -> config).
+- Provide a ChromaDB-compatible embedding function that routes every real
+  embedding call through the decoupled :mod:`embedding_manager` — never a raw
+  LangChain client.
+
+The settings-table reads are cached for a short TTL so repeated resolution
+during a single request doesn't open a new DB session per call (the previous
+behavior caused connection churn under load).
+"""
+
 import os
+import threading
+import time
 from typing import Any
 
 from chromadb.api.types import EmbeddingFunction, Embeddings
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Setting
 from app.services.embedding_manager import embed_batch_managed, key_manager
 
+#: TTL (seconds) for the cached settings-table reads.
+_SETTINGS_CACHE_TTL = 5.0
+
+_settings_cache: dict[str, tuple[float, str]] = {}
+_settings_cache_lock = threading.Lock()
+
 
 def _get_setting_value(key: str) -> str:
-    """Read a setting value from the admin-managed settings table."""
+    """Read a setting value from the admin-managed settings table.
+
+    Cached for ``_SETTINGS_CACHE_TTL`` seconds so repeated calls within a
+    request (e.g. resolving chat + embedding + OCR models) don't each open a
+    fresh DB session. The cache is invalidated naturally by the TTL, so admin
+    edits propagate within a few seconds.
+    """
+    now = time.monotonic()
+    with _settings_cache_lock:
+        cached = _settings_cache.get(key)
+        if cached and now - cached[0] < _SETTINGS_CACHE_TTL:
+            return cached[1]
+
     db = SessionLocal()
     try:
         setting = db.query(Setting).filter(Setting.key == key).first()
-        return setting.value if setting and setting.value else ""
+        value = setting.value if setting and setting.value else ""
     finally:
         db.close()
+
+    with _settings_cache_lock:
+        _settings_cache[key] = (now, value)
+    return value
 
 
 def resolve_api_key() -> str:
@@ -97,15 +134,6 @@ def get_embedding_function() -> Any:
     return GeminiChromaEmbeddingFunction(
         model=resolve_embedding_model(),
         api_keys=keys,
-    )
-
-
-def get_chat_model():
-    """Return the Gemini chat model for RAG answer generation."""
-    return ChatGoogleGenerativeAI(
-        model=resolve_chat_model(),
-        google_api_key=resolve_api_key(),
-        temperature=0.2,
     )
 
 

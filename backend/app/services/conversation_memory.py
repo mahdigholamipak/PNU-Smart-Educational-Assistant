@@ -8,6 +8,7 @@ Responsible for:
   with a deterministic concatenation fallback for ANY AI failure.
 """
 
+import logging
 import re
 
 from sqlalchemy.orm import Session
@@ -16,6 +17,8 @@ from app.models import ChatMessage
 from app.services.chat_manager import generate_chat_response
 from app.services.embedding_manager import key_manager
 from app.services.llm_service import resolve_api_keys, resolve_rewrite_model
+
+logger = logging.getLogger(__name__)
 
 # Number of recent messages (turns) to feed into generation + rewriting.
 HISTORY_MAX_TURNS = 6
@@ -210,9 +213,9 @@ def rewrite_search_query(
         rewritten = rewritten.strip().strip('"').strip("«»").strip()
         if rewritten and len(rewritten) <= 500:
             return rewritten
-    except Exception:
+    except Exception as exc:
         # Any failure → fall through to the deterministic fallback.
-        pass
+        logger.debug("Query rewrite failed, using deterministic fallback: %s", exc)
 
     return _fallback_rewrite(question, history)
 
