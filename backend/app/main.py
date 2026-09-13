@@ -159,3 +159,44 @@ if (_FRONTEND_DIST / "index.html").exists():
 def root():
     """Health check endpoint."""
     return {"status": "ok", "app": "PNU Smart Educational Assistant"}
+
+
+# One-time admin bootstrap: only active while ADMIN_SETUP_TOKEN env var is set.
+# After creating the admin, remove that env var in Render to disable this route.
+from pydantic import BaseModel as _BM
+from fastapi import HTTPException, Depends
+from app.database import SessionLocal, Base as _Base, engine as _engine
+from sqlalchemy.orm import Session as _Session
+
+
+class _AdminSetup(_BM):
+    setup_token: str
+    email: str
+    password: str
+    full_name: str = "مدیر سامانه"
+
+
+@app.post("/api/bootstrap-admin", include_in_schema=False)
+def bootstrap_admin(payload: _AdminSetup, db: _Session = Depends(_get_db)):
+    import os
+    expected = os.environ.get("ADMIN_SETUP_TOKEN", "")
+    if not expected or payload.setup_token != expected:
+        raise HTTPException(status_code=404, detail="Not found")
+    from app.models import User as _User
+    from app.core.security import hash_password as _hp
+    if db.query(_User).filter(_User.email == payload.email).first():
+        return {"ok": False, "detail": "admin already exists — remove ADMIN_SETUP_TOKEN now"}
+    u = _User(email=payload.email, password_hash=_hp(payload.password),
+              full_name=payload.full_name, role="admin", is_active=True)
+    db.add(u)
+    db.commit()
+    return {"ok": True, "detail": "admin created — NOW remove ADMIN_SETUP_TOKEN env var in Render"}
+
+
+def _get_db():
+    from app.database import SessionLocal as _SL
+    db = _SL()
+    try:
+        yield db
+    finally:
+        db.close()
