@@ -138,6 +138,21 @@ app.include_router(chat.router, prefix="/api")
 app.include_router(requests.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 
+# Serve built frontend (single-container deploy) if present.
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend_dist"
+if (_FRONTEND_DIST / "index.html").exists():
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa(full_path: str):
+        target = _FRONTEND_DIST / full_path
+        if full_path and target.is_file():
+            return FileResponse(target)
+        return FileResponse(_FRONTEND_DIST / "index.html")
+
 
 @app.get("/")
 def root():
