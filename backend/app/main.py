@@ -139,7 +139,8 @@ app.include_router(requests.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 
 # Serve built frontend (single-container deploy) if present.
-_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend_dist"
+from pathlib import Path as _Path
+_FRONTEND_DIST = _Path(__file__).resolve().parent.parent / "frontend_dist"
 if (_FRONTEND_DIST / "index.html").exists():
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import FileResponse
