@@ -165,8 +165,16 @@ def root():
 # After creating the admin, remove that env var in Render to disable this route.
 from pydantic import BaseModel as _BM
 from fastapi import HTTPException, Depends
-from app.database import SessionLocal, Base as _Base, engine as _engine
 from sqlalchemy.orm import Session as _Session
+
+
+def _get_db():
+    from app.database import SessionLocal as _SL
+    db = _SL()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 class _AdminSetup(_BM):
@@ -191,12 +199,3 @@ def bootstrap_admin(payload: _AdminSetup, db: _Session = Depends(_get_db)):
     db.add(u)
     db.commit()
     return {"ok": True, "detail": "admin created — NOW remove ADMIN_SETUP_TOKEN env var in Render"}
-
-
-def _get_db():
-    from app.database import SessionLocal as _SL
-    db = _SL()
-    try:
-        yield db
-    finally:
-        db.close()
